@@ -161,6 +161,7 @@ HDR = \
 	nameser.h \
 	netbios.h \
 	netdissect.h \
+	nflog.h \
 	nfs.h \
 	nfsfh.h \
 	nlpid.h \

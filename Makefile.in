@@ -251,7 +251,7 @@ $(PROG): $(OBJ) @V_PCAPDEP@
 
 $(LIBNETDISSECT): $(LIBNETDISSECT_OBJ)
 	@rm -f $@
-	$(AR) cr $@ $(LIBNETDISSECT_OBJ) 
+	$(AR) cr $@ $(LIBNETDISSECT_OBJ)
 	$(RANLIB) $@
 
 datalinks.o: $(srcdir)/missing/datalinks.c

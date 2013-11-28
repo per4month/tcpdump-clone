@@ -91,6 +91,7 @@ pppoes_id       pppoes.pcap            pppoes_id.out   -t pppoes 0x3b
 
 # ICMPv6
 icmpv6          icmpv6.pcap             icmpv6.out      -t -vv
+icmpv6_opt24-v	icmpv6_opt24.pcap	icmpv6_opt24-v.out	-t -v
 
 # SPB tests
 spb	            spb.pcap	            spb.out -t

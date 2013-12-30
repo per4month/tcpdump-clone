@@ -151,7 +151,6 @@ HDR = \
 	ipnet.h \
 	ipproto.h \
 	ipsec_doi.h \
-	ipx.h \
 	isakmp.h \
 	l2tp.h \
 	l2vpn.h \
@@ -193,7 +192,6 @@ HDR = \
 	tcp.h \
 	tcpdump-stdinc.h \
 	telnet.h \
-	tftp.h \
 	timed.h \
 	token.h \
 	udp.h

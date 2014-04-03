@@ -2059,7 +2059,7 @@ print_packet(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
 			/*
 			 * Include the link-layer header.
 			 */
-			ascii_print(sp, h->caplen);
+			ascii_print(ndo, sp, h->caplen);
 		} else {
 			/*
 			 * Don't include the link-layer header - and if
@@ -2067,7 +2067,7 @@ print_packet(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
 			 * print nothing.
 			 */
 			if (h->caplen > hdrlen)
-				ascii_print(sp + hdrlen, h->caplen - hdrlen);
+				ascii_print(ndo, sp + hdrlen, h->caplen - hdrlen);
 		}
 	}
 

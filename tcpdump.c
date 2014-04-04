@@ -1459,7 +1459,7 @@ main(int argc, char **argv)
 		free(cmdbuf);
 		exit(0);
 	}
-	init_addrtoname(localnet, netmask);
+	init_addrtoname(gndo, localnet, netmask);
         init_checksum();
 
 #ifndef WIN32

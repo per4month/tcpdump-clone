@@ -219,7 +219,6 @@ EXTRA_DIST = \
 	print-dhcp6.c \
 	print-frag6.c \
 	print-icmp6.c \
-	print-ip6.c \
 	print-ip6opts.c \
 	print-mobility.c \
 	print-ospf6.c \

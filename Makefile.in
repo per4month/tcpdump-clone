@@ -158,6 +158,7 @@ HDR = \
 	smb.h \
 	tcp.h \
 	tcpdump-stdinc.h \
+	timeval-operations.h \
 	udp.h
 
 TAGHDR = \

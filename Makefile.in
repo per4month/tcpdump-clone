@@ -116,6 +116,7 @@ SRC =	$(CSRC) $(GENSRC) $(LOCALSRC) $(LIBNETDISSECT_SRC)
 OBJ =	$(CSRC:.c=.o) $(GENSRC:.c=.o) $(LIBNETDISSECT_OBJ)
 HDR = \
 	addrtoname.h \
+	addrtostr.h \
 	af.h \
 	ah.h \
 	appletalk.h \
@@ -156,6 +157,7 @@ HDR = \
 	signature.h \
 	slcompress.h \
 	smb.h \
+	strtoaddr.h \
 	tcp.h \
 	netdissect-stdinc.h \
 	timeval-operations.h \
@@ -200,14 +202,9 @@ EXTRA_DIST = \
 	lbl/os-sunos4.h \
 	lbl/os-ultrix4.h \
 	makemib \
-	missing/addrinfo.h \
 	missing/dlnames.c \
 	missing/datalinks.c \
-	missing/getnameinfo.c \
 	missing/getopt_long.c \
-	missing/inet_aton.c \
-	missing/inet_ntop.c \
-	missing/inet_pton.c \
 	missing/snprintf.c \
 	missing/strdup.c \
 	missing/strlcat.c \
@@ -216,16 +213,7 @@ EXTRA_DIST = \
 	mkdep \
 	packetdat.awk \
 	pcap_dump_ftell.c \
-	print-babel.c \
-	print-dhcp6.c \
-	print-frag6.c \
-	print-icmp6.c \
-	print-ip6opts.c \
-	print-mobility.c \
-	print-ospf6.c \
 	print-pflog.c \
-	print-ripng.c \
-	print-rt6.c \
 	print-smb.c \
 	send-ack.awk \
 	smbutil.c \
@@ -253,16 +241,8 @@ datalinks.o: $(srcdir)/missing/datalinks.c
 	$(CC) $(FULL_CFLAGS) -o $@ -c $(srcdir)/missing/datalinks.c
 dlnames.o: $(srcdir)/missing/dlnames.c
 	$(CC) $(FULL_CFLAGS) -o $@ -c $(srcdir)/missing/dlnames.c
-getnameinfo.o: $(srcdir)/missing/getnameinfo.c
-	$(CC) $(FULL_CFLAGS) -o $@ -c $(srcdir)/missing/getnameinfo.c
 getopt_long.o: $(srcdir)/missing/getopt_long.c
 	$(CC) $(FULL_CFLAGS) -o $@ -c $(srcdir)/missing/getopt_long.c
-inet_pton.o: $(srcdir)/missing/inet_pton.c
-	$(CC) $(FULL_CFLAGS) -o $@ -c $(srcdir)/missing/inet_pton.c
-inet_ntop.o: $(srcdir)/missing/inet_ntop.c
-	$(CC) $(FULL_CFLAGS) -o $@ -c $(srcdir)/missing/inet_ntop.c
-inet_aton.o: $(srcdir)/missing/inet_aton.c
-	$(CC) $(FULL_CFLAGS) -o $@ -c $(srcdir)/missing/inet_aton.c
 snprintf.o: $(srcdir)/missing/snprintf.c
 	$(CC) $(FULL_CFLAGS) -o $@ -c $(srcdir)/missing/snprintf.c
 strdup.o: $(srcdir)/missing/strdup.c

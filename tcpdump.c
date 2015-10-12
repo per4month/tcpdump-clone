@@ -1246,7 +1246,7 @@ main(int argc, char **argv)
 				VFile = fopen(VFileName, "r");
 
 			if (VFile == NULL)
-				error("Unable to open file: %s\n", strerror(errno));
+				error("Unable to open file: %s\n", pcap_strerror(errno));
 
 			ret = get_next_file(VFile, VFileLine);
 			if (!ret)
@@ -1905,7 +1905,7 @@ compress_savefile(const char *filename)
 			"compress_savefile:execlp(%s, %s): %s\n",
 			zflag,
 			filename,
-			strerror(errno));
+			pcap_strerror(errno));
 # ifdef HAVE_FORK
 	exit(1);
 # else

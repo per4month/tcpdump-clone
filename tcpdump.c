@@ -1118,15 +1118,11 @@ main(int argc, char **argv)
 			break;
 #endif
 		case 'z':
-			zflag = strdup(optarg);
-			if (zflag == NULL)
-				error("Unable to allocate memory for -z argument");
+			zflag = optarg;
 			break;
 
 		case 'Z':
-			username = strdup(optarg);
-			if (username == NULL)
-				error("Unable to allocate memory for -Z argument");
+			username = optarg;
 			break;
 
 		case '#':

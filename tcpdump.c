@@ -1848,7 +1848,6 @@ main(int argc, char **argv)
 					 */
 					dlt = new_dlt;
 					ndo->ndo_if_printer = get_if_printer(ndo, dlt);
-					dlt_name = pcap_datalink_val_to_name(dlt);
 					if (pcap_compile(pd, &fcode, cmdbuf, Oflag, netmask) < 0)
 						error("%s", pcap_geterr(pd));
 				}
@@ -1862,6 +1861,7 @@ main(int argc, char **argv)
 				/*
 				 * Report the new file.
 				 */
+				dlt_name = pcap_datalink_val_to_name(dlt);
 				if (dlt_name == NULL) {
 					fprintf(stderr, "reading from file %s, link-type %u\n",
 					    RFileName, dlt);

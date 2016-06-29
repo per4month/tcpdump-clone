@@ -863,7 +863,7 @@ main(int argc, char **argv)
 
 		case 'C':
 			Cflag = atoi(optarg) * 1000000;
-			if (Cflag < 0)
+			if (Cflag <= 0)
 				error("invalid file size %s", optarg);
 			break;
 
@@ -1144,7 +1144,7 @@ main(int argc, char **argv)
 
 		case 'W':
 			Wflag = atoi(optarg);
-			if (Wflag < 0)
+			if (Wflag <= 0)
 				error("invalid number of output files %s", optarg);
 			WflagChars = getWflagChars(Wflag);
 			break;

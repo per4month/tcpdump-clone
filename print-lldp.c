@@ -604,8 +604,8 @@ static const struct tok lldp_evb_mode_values[]={
 #define LLDP_IANA_SUBTYPE_MUDURL 1
 
 static const struct tok lldp_iana_subtype_values[] =   {
-  { LLDP_IANA_SUBTYPE_MUDURL, "MUD-URL" },
-  { 0, NULL }
+    { LLDP_IANA_SUBTYPE_MUDURL, "MUD-URL" },
+    { 0, NULL }
 };
 
 
@@ -947,7 +947,7 @@ lldp_private_iana_print(netdissect_options *ndo,
       ND_PRINT((ndo,"\n\t  MUD-URL=%.*s",tlv_len-4,tptr+4));
       break;
     default:
-      hexdump=TRUE;
+        hexdump=TRUE;
     }
     
     return hexdump;
@@ -1615,8 +1615,8 @@ lldp_print(netdissect_options *ndo,
                     hexdump = lldp_private_8023_print(ndo, tptr, tlv_len);
                     break;
 		case OUI_IANA:
-		  hexdump = lldp_private_iana_print(ndo,tptr,tlv_len);
-		    break;
+                    hexdump = lldp_private_iana_print(ndo, tptr, tlv_len);
+                    break;
                 case OUI_TIA:
                     hexdump = lldp_private_tia_print(ndo, tptr, tlv_len);
                     break;

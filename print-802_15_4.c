@@ -33,6 +33,11 @@
 
 #include "extract.h"
 
+#define CHECK_BIT(num,bit) (((num) >> (bit)) & 0x1)
+
+#define BROKEN_6TISCH_PAN_ID_COMPRESSION 0
+
+/* Frame types from Table 7-1 of 802.15.4-2015 */
 static const char *ftypes[] = {
 	"Beacon",			/* 0 */
 	"Data",				/* 1 */
@@ -260,3 +265,5 @@ ieee802_15_4_tap_if_print(netdissect_options *ndo,
 
 	return ieee802_15_4_print(ndo, p+length, h->caplen-length) + length;
 }
+
+

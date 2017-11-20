@@ -2217,7 +2217,7 @@ bgp_attr_print(netdissect_options *ndo,
                                tok2str(l2vpn_encaps_values,
 					  "unknown encaps",
 					  EXTRACT_8BITS((tptr + 2))),
-                               *(tptr+3),
+                               EXTRACT_8BITS((tptr + 3)),
                                EXTRACT_BE_16BITS(tptr + 4)));
                         break;
                     case BGP_EXT_COM_SOURCE_AS:
@@ -2823,7 +2823,7 @@ bgp_notification_print(netdissect_options *ndo,
 				  EXTRACT_BE_16BITS(tptr)),
 		       EXTRACT_BE_16BITS(tptr),
 		       tok2str(bgp_safi_values, "Unknown", EXTRACT_8BITS((tptr + 2))),
-		       *(tptr+2),
+		       EXTRACT_8BITS((tptr + 2)),
 		       EXTRACT_BE_32BITS(tptr + 3)));
 	    }
 	    /*

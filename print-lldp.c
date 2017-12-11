@@ -1179,7 +1179,7 @@ lldp_private_dcbx_print(netdissect_options *ndo,
 
     while (tlen >= sizeof(tlv)) {
 
-        ND_TCHECK2(*tptr, sizeof(tlv));
+        ND_TCHECK_LEN(tptr, sizeof(tlv));
 
         tlv = EXTRACT_BE_U_2(tptr);
 
@@ -1195,7 +1195,7 @@ lldp_private_dcbx_print(netdissect_options *ndo,
             break;
         }
 
-        ND_TCHECK2(*tptr, tlv_len);
+        ND_TCHECK_LEN(tptr, tlv_len);
         if (tlen < tlv_len) {
             goto trunc;
         }
@@ -1439,7 +1439,7 @@ lldp_print(netdissect_options *ndo,
 
     while (tlen >= sizeof(tlv)) {
 
-        ND_TCHECK2(*tptr, sizeof(tlv));
+        ND_TCHECK_LEN(tptr, sizeof(tlv));
 
         tlv = EXTRACT_BE_U_2(tptr);
 
@@ -1461,7 +1461,7 @@ lldp_print(netdissect_options *ndo,
             break;
         }
 
-        ND_TCHECK2(*tptr, tlv_len);
+        ND_TCHECK_LEN(tptr, tlv_len);
         if (tlen < tlv_len) {
             goto trunc;
         }

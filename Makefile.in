@@ -142,6 +142,7 @@ HDR = \
 	mpls.h \
 	nameser.h \
 	netdissect.h \
+	netdissect-alloc.h \
 	netdissect-stdinc.h \
 	nfs.h \
 	nfsfh.h \

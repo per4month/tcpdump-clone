@@ -158,6 +158,7 @@ ether_print(netdissect_options *ndo,
 	int llc_hdrlen;
 	struct lladdr_info src, dst;
 
+	ndo->ndo_protocol = "ether";
 	if (caplen < ETHER_HDRLEN) {
 		ND_PRINT("[|ether]");
 		return (caplen);
@@ -288,6 +289,7 @@ u_int
 ether_if_print(netdissect_options *ndo, const struct pcap_pkthdr *h,
                const u_char *p)
 {
+	ndo->ndo_protocol = "ether_if";
 	return (ether_print(ndo, p, h->len, h->caplen, NULL, NULL));
 }
 
@@ -307,6 +309,7 @@ netanalyzer_if_print(netdissect_options *ndo, const struct pcap_pkthdr *h,
 	/*
 	 * Fail if we don't have enough data for the Hilscher pseudo-header.
 	 */
+	ndo->ndo_protocol = "netanalyzer_if";
 	if (h->len < 4 || h->caplen < 4) {
 		ND_PRINT("[|netanalyzer]");
 		return (h->caplen);
@@ -335,6 +338,7 @@ netanalyzer_transparent_if_print(netdissect_options *ndo,
 	 * Fail if we don't have enough data for the Hilscher pseudo-header,
 	 * preamble, and SOF.
 	 */
+	ndo->ndo_protocol = "netanalyzer_transparent_if";
 	if (h->len < 12 || h->caplen < 12) {
 		ND_PRINT("[|netanalyzer-transparent]");
 		return (h->caplen);

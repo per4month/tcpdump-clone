@@ -490,12 +490,3 @@ ethertype_print(netdissect_options *ndo,
 		return (0);
 	}
 }
-
-
-/*
- * Local Variables:
- * c-style: whitesmith
- * c-basic-offset: 8
- * End:
- */
-

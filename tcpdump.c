@@ -2932,9 +2932,3 @@ print_usage(void)
 	(void)fprintf(stderr,
 "\t\t[ -z postrotate-command ] [ -Z user ] [ expression ]\n");
 }
-/*
- * Local Variables:
- * c-style: whitesmith
- * c-basic-offset: 8
- * End:
- */

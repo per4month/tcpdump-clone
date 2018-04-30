@@ -744,7 +744,7 @@ dhcp6opt_print(netdissect_options *ndo,
 				label_len = EXTRACT_U_1(tp);
 				tp++;
 				if (label_len < remain_len - 1) {
-					(void)fn_printn(ndo, tp, label_len, NULL);
+					(void)nd_printn(ndo, tp, label_len, NULL);
 					tp += label_len;
 					remain_len -= (label_len + 1);
 					if(EXTRACT_U_1(tp)) ND_PRINT(".");

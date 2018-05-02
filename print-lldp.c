@@ -699,7 +699,7 @@ lldp_private_8021_print(netdissect_options *ndo,
             return hexdump;
         }
         ND_PRINT("\n\t    vlan name: ");
-        safeputs(ndo, tptr + 7, sublen);
+        (void)nd_printzp(ndo, tptr + 7, sublen, NULL);
         break;
     case LLDP_PRIVATE_8021_SUBTYPE_PROTOCOL_IDENTITY:
         if (tlv_len < 5) {
@@ -710,7 +710,7 @@ lldp_private_8021_print(netdissect_options *ndo,
             return hexdump;
         }
         ND_PRINT("\n\t    protocol identity: ");
-        safeputs(ndo, tptr + 5, sublen);
+        (void)nd_printzp(ndo, tptr + 5, sublen, NULL);
         break;
     case LLDP_PRIVATE_8021_SUBTYPE_CONGESTION_NOTIFICATION:
         if(tlv_len<LLDP_PRIVATE_8021_SUBTYPE_CONGESTION_NOTIFICATION_LENGTH){
@@ -1067,7 +1067,7 @@ lldp_private_tia_print(netdissect_options *ndo,
                    EXTRACT_U_1(tptr + 6));
 
             /* Country code */
-            safeputs(ndo, tptr + 7, 2);
+            (void)nd_printzp(ndo, tptr + 7, 2, NULL);
 
             lci_len = lci_len-3;
             tptr = tptr + 9;
@@ -1095,7 +1095,7 @@ lldp_private_tia_print(netdissect_options *ndo,
 		    return hexdump;
 		}
 
-                safeputs(ndo, tptr, ca_len);
+                (void)nd_printzp(ndo, tptr, ca_len, NULL);
                 tptr += ca_len;
                 lci_len -= ca_len;
             }
@@ -1103,7 +1103,7 @@ lldp_private_tia_print(netdissect_options *ndo,
 
         case LLDP_TIA_LOCATION_DATA_FORMAT_ECS_ELIN:
             ND_PRINT("\n\t    ECS ELIN id ");
-            safeputs(ndo, tptr + 5, tlv_len - 5);
+            (void)nd_printzp(ndo, tptr + 5, tlv_len - 5, NULL);
             break;
 
         default:
@@ -1140,7 +1140,7 @@ lldp_private_tia_print(netdissect_options *ndo,
     case LLDP_PRIVATE_TIA_SUBTYPE_INVENTORY_ASSET_ID:
         ND_PRINT("\n\t  %s ",
                tok2str(lldp_tia_inventory_values, "unknown", subtype));
-        safeputs(ndo, tptr + 4, tlv_len - 4);
+        (void)nd_printzp(ndo, tptr + 4, tlv_len - 4, NULL);
         break;
 
     default:
@@ -1420,7 +1420,7 @@ lldp_mgmt_addr_tlv_print(netdissect_options *ndo,
         }
         if (oid_len) {
             ND_PRINT("\n\t  OID length %u", oid_len);
-            safeputs(ndo, tptr + 1, oid_len);
+            (void)nd_printzp(ndo, tptr + 1, oid_len, NULL);
         }
     }
 
@@ -1497,7 +1497,7 @@ lldp_print(netdissect_options *ndo,
                 case LLDP_CHASSIS_CHASSIS_COMP_SUBTYPE:
                 case LLDP_CHASSIS_INTF_ALIAS_SUBTYPE:
                 case LLDP_CHASSIS_PORT_COMP_SUBTYPE:
-                    safeputs(ndo, tptr + 1, tlv_len - 1);
+                    (void)nd_printzp(ndo, tptr + 1, tlv_len - 1, NULL);
                     break;
 
                 case LLDP_CHASSIS_NETWORK_ADDR_SUBTYPE:
@@ -1538,7 +1538,7 @@ lldp_print(netdissect_options *ndo,
                 case LLDP_PORT_AGENT_CIRC_ID_SUBTYPE:
                 case LLDP_PORT_INTF_ALIAS_SUBTYPE:
                 case LLDP_PORT_PORT_COMP_SUBTYPE:
-                    safeputs(ndo, tptr + 1, tlv_len - 1);
+                    (void)nd_printzp(ndo, tptr + 1, tlv_len - 1, NULL);
                     break;
 
                 case LLDP_PORT_NETWORK_ADDR_SUBTYPE:
@@ -1568,7 +1568,7 @@ lldp_print(netdissect_options *ndo,
         case LLDP_PORT_DESCR_TLV:
             if (ndo->ndo_vflag) {
                 ND_PRINT(": ");
-                safeputs(ndo, tptr, tlv_len);
+                (void)nd_printzp(ndo, tptr, tlv_len, NULL);
             }
             break;
 
@@ -1578,13 +1578,13 @@ lldp_print(netdissect_options *ndo,
              * similar to the CDP printer.
              */
             ND_PRINT(": ");
-            safeputs(ndo, tptr, tlv_len);
+            (void)nd_printzp(ndo, tptr, tlv_len, NULL);
             break;
 
         case LLDP_SYSTEM_DESCR_TLV:
             if (ndo->ndo_vflag) {
                 ND_PRINT("\n\t  ");
-                safeputs(ndo, tptr, tlv_len);
+                (void)nd_printzp(ndo, tptr, tlv_len, NULL);
             }
             break;
 

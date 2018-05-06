@@ -1662,5 +1662,5 @@ lldp_print(netdissect_options *ndo,
     }
     return;
  trunc:
-    ND_PRINT("\n\t[|LLDP]");
+    nd_print_trunc(ndo);
 }

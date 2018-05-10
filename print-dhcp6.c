@@ -776,7 +776,7 @@ dhcp6opt_print(netdissect_options *ndo,
 	return;
 
 trunc:
-	ND_PRINT("[|dhcp6ext]");
+	nd_print_trunc(ndo);
 }
 
 /*
@@ -833,5 +833,5 @@ dhcp6_print(netdissect_options *ndo,
 	return;
 
 trunc:
-	ND_PRINT("[|dhcp6]");
+	nd_print_trunc(ndo);
 }

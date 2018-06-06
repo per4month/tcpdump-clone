@@ -160,11 +160,11 @@ ether_print(netdissect_options *ndo,
 
 	ndo->ndo_protocol = "ether";
 	if (caplen < ETHER_HDRLEN) {
-		ND_PRINT("[|ether]");
+		nd_print_trunc(ndo);
 		return (caplen);
 	}
 	if (length < ETHER_HDRLEN) {
-		ND_PRINT("[|ether]");
+		nd_print_trunc(ndo);
 		return (length);
 	}
 
@@ -311,7 +311,7 @@ netanalyzer_if_print(netdissect_options *ndo, const struct pcap_pkthdr *h,
 	 */
 	ndo->ndo_protocol = "netanalyzer_if";
 	if (h->len < 4 || h->caplen < 4) {
-		ND_PRINT("[|netanalyzer]");
+		nd_print_trunc(ndo);
 		return (h->caplen);
 	}
 
@@ -340,7 +340,7 @@ netanalyzer_transparent_if_print(netdissect_options *ndo,
 	 */
 	ndo->ndo_protocol = "netanalyzer_transparent_if";
 	if (h->len < 12 || h->caplen < 12) {
-		ND_PRINT("[|netanalyzer-transparent]");
+		nd_print_trunc(ndo);
 		return (h->caplen);
 	}
 

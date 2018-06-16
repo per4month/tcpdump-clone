@@ -251,8 +251,8 @@ ieee802_15_4_tap_if_print(netdissect_options *ndo,
 		return h->caplen;
 	}
 
-	version = EXTRACT_U_1(p);
-	length = EXTRACT_LE_U_2(p+2);
+	version = GET_U_1(p);
+	length = GET_LE_U_2(p + 2);
 	if (version != 0 || length < 4) {
 		nd_print_invalid(ndo);
 		return 0;

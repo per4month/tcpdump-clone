@@ -130,7 +130,6 @@ HDR = \
 	getopt_long.h \
 	getservent.h \
 	gmpls.h \
-	gmt2local.h \
 	interface.h \
 	ip.h \
 	ip6.h \

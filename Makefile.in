@@ -148,6 +148,7 @@ HDR = \
 	nfs.h \
 	nfsfh.h \
 	nlpid.h \
+	ntp.h \
 	openflow.h \
 	ospf.h \
 	oui.h \

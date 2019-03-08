@@ -180,7 +180,7 @@ struct rip_auth_crypto_v2 {
 
 static unsigned
 rip_entry_print_v1(netdissect_options *ndo, const u_char *p,
-                   unsigned remaining)
+		   unsigned remaining)
 {
 	const struct rip_entry_header *eh = (const struct rip_entry_header *)p;
 	u_short family;
@@ -193,20 +193,20 @@ rip_entry_print_v1(netdissect_options *ndo, const u_char *p,
 	family = EXTRACT_BE_U_2(ni->rip_family);
 	if (family != BSD_AFNUM_INET && family != 0) {
 		ND_PRINT("\n\t AFI %s, ", tok2str(bsd_af_values, "Unknown (%u)", family));
-                print_unknown_data(ndo, p + sizeof(*eh), "\n\t  ", RIP_ROUTELEN - sizeof(*eh));
+		print_unknown_data(ndo, p + sizeof(*eh), "\n\t  ", RIP_ROUTELEN - sizeof(*eh));
 		return (RIP_ROUTELEN);
 	}
 	if (EXTRACT_BE_U_2(ni->rip_mbz1) ||
 	    EXTRACT_BE_U_4(ni->rip_mbz2) ||
 	    EXTRACT_BE_U_4(ni->rip_mbz3)) {
 		/* MBZ fields not zero */
-                print_unknown_data(ndo, p, "\n\t  ", RIP_ROUTELEN);
+		print_unknown_data(ndo, p, "\n\t  ", RIP_ROUTELEN);
 		return (RIP_ROUTELEN);
 	}
 	if (family == 0) {
 		ND_PRINT("\n\t  AFI 0, %s, metric: %u",
-			ipaddr_string(ndo, ni->rip_dest),
-			EXTRACT_BE_U_4(ni->rip_metric));
+			 ipaddr_string(ndo, ni->rip_dest),
+			 EXTRACT_BE_U_4(ni->rip_metric));
 		return (RIP_ROUTELEN);
 	} /* BSD_AFNUM_INET */
 	ND_PRINT("\n\t  %s, metric: %u",
@@ -219,7 +219,7 @@ trunc:
 
 static unsigned
 rip_entry_print_v2(netdissect_options *ndo, const u_char *p,
-                   unsigned remaining)
+		   unsigned remaining)
 {
 	const struct rip_entry_header *eh = (const struct rip_entry_header *)p;
 	u_short family;
@@ -258,13 +258,13 @@ rip_entry_print_v2(netdissect_options *ndo, const u_char *p,
 			return (sizeof(*eh) + remaining); /* AT spans till the packet end */
 		} else {
 			ND_PRINT("\n\t  Unknown (%u) Authentication data:",
-			       auth_type);
+				 auth_type);
 			print_unknown_data(ndo, p, "\n\t  ", remaining);
 			return (sizeof(*eh) + remaining); /* we don't know how long this is, so we go to the packet end */
 		}
 	} else if (family != BSD_AFNUM_INET && family != 0) {
 		ND_PRINT("\n\t  AFI %s", tok2str(bsd_af_values, "Unknown (%u)", family));
-                print_unknown_data(ndo, p + sizeof(*eh), "\n\t  ", RIP_ROUTELEN - sizeof(*eh));
+		print_unknown_data(ndo, p + sizeof(*eh), "\n\t  ", RIP_ROUTELEN - sizeof(*eh));
 	} else { /* BSD_AFNUM_INET or AFI 0 */
 		ni = (const struct rip_netinfo_v2 *)p;
 		ND_TCHECK_SIZE(ni);
@@ -288,7 +288,7 @@ trunc:
 
 void
 rip_print(netdissect_options *ndo,
-          const u_char *dat, u_int length)
+	  const u_char *dat, u_int length)
 {
 	const struct rip *rp;
 	uint8_t vers, cmd;
@@ -315,8 +315,8 @@ rip_print(netdissect_options *ndo,
 	ND_TCHECK_SIZE(rp);
 	vers = EXTRACT_U_1(rp->rip_vers);
 	ND_PRINT("%sRIPv%u",
-               (ndo->ndo_vflag >= 1) ? "\n\t" : "",
-               vers);
+		 (ndo->ndo_vflag >= 1) ? "\n\t" : "",
+		 vers);
 
 	if (vers == 0) {
 		/*

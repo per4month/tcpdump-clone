@@ -19,6 +19,7 @@
  * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  */
 
+/* \summary: ZigBee Encapsulation Protocol (ZEP) printer */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"

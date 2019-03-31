@@ -366,7 +366,7 @@ extern void unsigned_relts_print(netdissect_options *, uint32_t);
 extern void fn_print_char(netdissect_options *, u_char);
 extern void fn_print_str(netdissect_options *, const u_char *);
 extern int nd_print(netdissect_options *, const u_char *, const u_char *);
-extern u_int nd_printztn(netdissect_options *ndo, const u_char *, u_int, const u_char *);
+extern u_int nd_printztn(netdissect_options *, const u_char *, u_int, const u_char *);
 extern int nd_printn(netdissect_options *, const u_char *, u_int, const u_char *);
 extern int nd_printzp(netdissect_options *, const u_char *, u_int, const u_char *);
 
@@ -638,7 +638,7 @@ extern void nfsreply_noaddr_print(netdissect_options *, const u_char *, u_int, c
 extern void nfsreq_noaddr_print(netdissect_options *, const u_char *, u_int, const u_char *);
 extern const u_char * ns_nprint(netdissect_options *, const u_char *, const u_char *);
 extern void domain_print(netdissect_options *, const u_char *, u_int, int);
-extern void nsh_print(netdissect_options *ndo, const u_char *bp, u_int len);
+extern void nsh_print(netdissect_options *, const u_char *, u_int);
 extern void ntp_print(netdissect_options *, const u_char *, u_int);
 extern void oam_print(netdissect_options *, const u_char *, u_int, u_int);
 extern void olsr_print(netdissect_options *, const u_char *, u_int, int);
@@ -691,7 +691,7 @@ extern int vjc_print(netdissect_options *, const u_char *, u_short);
 extern void vqp_print(netdissect_options *, const u_char *, u_int);
 extern void vrrp_print(netdissect_options *, const u_char *, u_int, const u_char *, int);
 extern void vtp_print(netdissect_options *, const u_char *, u_int);
-extern void vxlan_gpe_print(netdissect_options *ndo, const u_char *bp, u_int len);
+extern void vxlan_gpe_print(netdissect_options *, const u_char *, u_int);
 extern void vxlan_print(netdissect_options *, const u_char *, u_int);
 extern void wb_print(netdissect_options *, const u_char *, u_int);
 extern void zephyr_print(netdissect_options *, const u_char *, int);

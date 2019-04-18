@@ -1162,7 +1162,7 @@ lldp_private_dcbx_print(netdissect_options *ndo,
 {
     int hexdump = FALSE;
     u_int subtype;
-    uint8_t tval;
+    uint16_t tval;
     uint16_t tlv;
     uint32_t i, pgval, uval;
     u_int tlen, tlv_type;

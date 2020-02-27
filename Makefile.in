@@ -206,6 +206,7 @@ EXTRA_DIST = \
 	config.sub \
 	configure \
 	configure.ac \
+	doc/README.Win32.md \
 	install-sh \
 	lbl/os-osf4.h \
 	lbl/os-solaris2.h \

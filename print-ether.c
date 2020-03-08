@@ -348,7 +348,7 @@ raw:
  * FIXME: caplen can and should be derived from ndo->ndo_snapend and p.
  */
 u_int
-ether_print_switch_tag(netdissect_options *ndo, const u_char *p, u_int length,
+ether_switch_tag_print(netdissect_options *ndo, const u_char *p, u_int length,
     u_int caplen,
     void (*print_switch_tag)(netdissect_options *, const u_char *),
     u_int switch_tag_len)

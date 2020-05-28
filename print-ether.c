@@ -316,7 +316,6 @@ recurse:
 				ND_PRINT(", ");
 		}
 		if (ethertype_print(ndo, length_type, p, length, caplen, &src, &dst) == 0) {
-raw:
 			/* type not known, print raw packet */
 			if (!ndo->ndo_eflag) {
 				/*

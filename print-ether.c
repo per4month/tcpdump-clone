@@ -207,7 +207,6 @@ recurse:
 	/*
 	 * Process VLAN tag types.
 	 */
-	printed_length = 0;
 	while (length_type == ETHERTYPE_8021Q  ||
 		length_type == ETHERTYPE_8021Q9100 ||
 		length_type == ETHERTYPE_8021Q9200 ||

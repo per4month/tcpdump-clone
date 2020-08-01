@@ -133,13 +133,13 @@ ether_type_print(netdissect_options *ndo, uint16_t type)
  * switch chips, and extra encapsulation header information before
  * printing Ethernet header information (such as a LANE ID for ATM LANE).
  */
-static void
+static u_int
 ether_common_print(netdissect_options *ndo, const u_char *p, u_int length,
     u_int caplen,
     void (*print_switch_tag)(netdissect_options *ndo, const u_char *),
     u_int switch_tag_len,
     void (*print_encap_header)(netdissect_options *ndo, const u_char *),
-    const u_char *encap_header_arg, u_int do_incr_ll_hdr_len)
+    const u_char *encap_header_arg)
 {
 	const struct ether_header *ehp;
 	u_int orig_length;
@@ -151,15 +151,11 @@ ether_common_print(netdissect_options *ndo, const u_char *p, u_int length,
 
 	if (caplen < ETHER_HDRLEN + switch_tag_len) {
 		nd_print_trunc(ndo);
-		if (do_incr_ll_hdr_len)
-			ndo->ndo_ll_hdr_len += caplen;
-		return;
+		return caplen;
 	}
 	if (length < ETHER_HDRLEN + switch_tag_len) {
 		nd_print_trunc(ndo);
-		if (do_incr_ll_hdr_len)
-			ndo->ndo_ll_hdr_len += length;
-		return;
+		return length;
 	}
 
 	if (print_encap_header != NULL)
@@ -223,16 +219,12 @@ recurse:
 		if (caplen < 4) {
 			ndo->ndo_protocol = "vlan";
 			nd_print_trunc(ndo);
-			if (do_incr_ll_hdr_len)
-				ndo->ndo_ll_hdr_len += hdrlen + caplen;
-			return;
+			return hdrlen + caplen;
 		}
 		if (length < 4) {
 			ndo->ndo_protocol = "vlan";
 			nd_print_trunc(ndo);
-			if (do_incr_ll_hdr_len)
-				ndo->ndo_ll_hdr_len += hdrlen + length;
-			return;
+			return hdrlen + length;
 		}
 		if (ndo->ndo_eflag) {
 			uint16_t tag = GET_BE_U_2(p);
@@ -286,15 +278,11 @@ recurse:
 	} else if (length_type == ETHERTYPE_ARISTA) {
 		if (caplen < 2) {
 			ND_PRINT("[|arista]");
-			if (do_incr_ll_hdr_len)
-				ndo->ndo_ll_hdr_len += hdrlen + caplen;
-			return;
+			return hdrlen + caplen;
 		}
 		if (length < 2) {
 			ND_PRINT("[|arista]");
-			if (do_incr_ll_hdr_len)
-				ndo->ndo_ll_hdr_len += hdrlen + length;
-			return;
+			return hdrlen + length;
 		}
 		ether_type_print(ndo, length_type);
 		ND_PRINT(", length %u: ", orig_length);
@@ -345,9 +333,7 @@ recurse:
 				ND_DEFAULTPRINT(p, caplen);
 		}
 	}
-	if (do_incr_ll_hdr_len)
-		ndo->ndo_ll_hdr_len += hdrlen;
-	return;
+	return hdrlen;
 }
 
 /*
@@ -359,14 +345,14 @@ recurse:
  *
  * FIXME: caplen can and should be derived from ndo->ndo_snapend and p.
  */
-void
+u_int
 ether_switch_tag_print(netdissect_options *ndo, const u_char *p, u_int length,
     u_int caplen,
     void (*print_switch_tag)(netdissect_options *, const u_char *),
-    u_int switch_tag_len, u_int do_incr_ll_hdr_len)
+    u_int switch_tag_len)
 {
-	ether_common_print(ndo, p, length, caplen, print_switch_tag,
-			   switch_tag_len, NULL, NULL, do_incr_ll_hdr_len);
+	return ether_common_print(ndo, p, length, caplen, print_switch_tag,
+				  switch_tag_len, NULL, NULL);
 }
 
 /*
@@ -377,15 +363,15 @@ ether_switch_tag_print(netdissect_options *ndo, const u_char *p, u_int length,
  *
  * FIXME: caplen can and should be derived from ndo->ndo_snapend and p.
  */
-void
+u_int
 ether_print(netdissect_options *ndo,
 	    const u_char *p, u_int length, u_int caplen,
 	    void (*print_encap_header)(netdissect_options *ndo, const u_char *),
-	    const u_char *encap_header_arg, u_int do_incr_ll_hdr_len)
+	    const u_char *encap_header_arg)
 {
 	ndo->ndo_protocol = "ether";
-	ether_common_print(ndo, p, length, caplen, NULL, 0,
-			   print_encap_header, encap_header_arg, do_incr_ll_hdr_len);
+	return ether_common_print(ndo, p, length, caplen, NULL, 0,
+				  print_encap_header, encap_header_arg);
 }
 
 /*
@@ -399,9 +385,8 @@ ether_if_print(netdissect_options *ndo, const struct pcap_pkthdr *h,
 	       const u_char *p)
 {
 	ndo->ndo_protocol = "ether";
-	ndo->ndo_ll_hdr_len += 0;
-
-	ether_print(ndo, p, h->len, h->caplen, NULL, NULL, TRUE);
+	ndo->ndo_ll_hdr_len +=
+		ether_print(ndo, p, h->len, h->caplen, NULL, NULL);
 }
 
 /*
@@ -426,10 +411,11 @@ netanalyzer_if_print(netdissect_options *ndo, const struct pcap_pkthdr *h,
 		nd_print_trunc(ndo);
 		return;
 	}
-	ndo->ndo_ll_hdr_len += 4;
 
 	/* Skip the pseudo-header. */
-	ether_print(ndo, p + 4, h->len - 4, h->caplen - 4, NULL, NULL, TRUE);
+	ndo->ndo_ll_hdr_len += 4;
+	ndo->ndo_ll_hdr_len +=
+		ether_print(ndo, p + 4, h->len - 4, h->caplen - 4, NULL, NULL);
 }
 
 /*
@@ -457,10 +443,11 @@ netanalyzer_transparent_if_print(netdissect_options *ndo,
 		nd_print_trunc(ndo);
 		return;
 	}
-	ndo->ndo_ll_hdr_len += 12;
 
 	/* Skip the pseudo-header, preamble, and SOF. */
-	ether_print(ndo, p + 12, h->len - 12, h->caplen - 12, NULL, NULL, TRUE);
+	ndo->ndo_ll_hdr_len += 12;
+	ndo->ndo_ll_hdr_len +=
+		ether_print(ndo, p + 12, h->len - 12, h->caplen - 12, NULL, NULL);
 }
 
 /*

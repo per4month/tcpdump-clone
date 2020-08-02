@@ -238,7 +238,7 @@ ieee802_15_4_if_print(netdissect_options *ndo,
 
 /* For DLT_IEEE802_15_4_TAP */
 /* https://github.com/jkcko/ieee802.15.4-tap */
-u_int
+void
 ieee802_15_4_tap_if_print(netdissect_options *ndo,
                           const struct pcap_pkthdr *h, const u_char *p)
 {
@@ -248,22 +248,24 @@ ieee802_15_4_tap_if_print(netdissect_options *ndo,
 	ndo->ndo_protocol = "802.15.4_tap";
 	if (h->caplen < 4) {
 		nd_print_trunc(ndo);
-		return h->caplen;
+		ndo->ndo_ll_hdr_len += h->caplen;
+		return;
 	}
 
 	version = GET_U_1(p);
 	length = GET_LE_U_2(p + 2);
 	if (version != 0 || length < 4) {
 		nd_print_invalid(ndo);
-		return 0;
+		return;
 	}
 
 	if (h->caplen < length) {
 		nd_print_trunc(ndo);
-		return h->caplen;
+		ndo->ndo_ll_hdr_len += h->caplen;
+		return;
 	}
 
-	return ieee802_15_4_print(ndo, p+length, h->caplen-length) + length;
+	ndo->ndo_ll_hdr_len += ieee802_15_4_print(ndo, p+length, h->caplen-length) + length;
 }
 
 

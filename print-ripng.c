@@ -116,7 +116,6 @@ ripng_print(netdissect_options *ndo, const u_char *dat, unsigned int length)
 	u_int j;
 
 	ndo->ndo_protocol = "ripng";
-	ND_TCHECK_1(rp->rip6_cmd);
 	cmd = GET_U_1(rp->rip6_cmd);
 	switch (cmd) {
 
@@ -176,7 +175,6 @@ ripng_print(netdissect_options *ndo, const u_char *dat, unsigned int length)
 		ND_PRINT(" ripng-%u ?? %u", cmd, length);
 		break;
 	}
-	ND_TCHECK_1(rp->rip6_vers);
 	if (GET_U_1(rp->rip6_vers) != RIP6_VERSION)
 		ND_PRINT(" [vers %u]", GET_U_1(rp->rip6_vers));
 	return;

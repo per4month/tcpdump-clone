@@ -43,7 +43,6 @@
  ***********************************************************************
  *
  * ZEP v1 Header will have the following format:
- *
  * |Preamble|Version|Channel ID|Device ID|CRC/LQI Mode|LQI Val|Reserved|Length|
  * |2 bytes |1 byte |  1 byte  | 2 bytes |   1 byte   |1 byte |7 bytes |1 byte|
  *

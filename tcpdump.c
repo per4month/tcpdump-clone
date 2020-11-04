@@ -2633,7 +2633,7 @@ DIAG_ON_CLANG(assign-enum)
 	while (ret != NULL);
 
 	if (count_mode && RFileName != NULL)
-		fprintf(stderr, "%u packet%s\n", packets_captured,
+		fprintf(stdout, "%u packet%s\n", packets_captured,
 			PLURAL_SUFFIX(packets_captured));
 
 	free(cmdbuf);

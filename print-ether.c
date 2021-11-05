@@ -335,6 +335,7 @@ recurse:
 				ND_DEFAULTPRINT(p, caplen);
 		}
 	}
+invalid:
 	return hdrlen;
 }
 

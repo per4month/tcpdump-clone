@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2009
- * 	Siemens AG, All rights reserved.
- * 	Dmitry Eremin-Solenikov (dbaryshkov@gmail.com)
+ *	Siemens AG, All rights reserved.
+ *	Dmitry Eremin-Solenikov (dbaryshkov@gmail.com)
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that: (1) source code distributions

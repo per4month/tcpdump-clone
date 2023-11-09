@@ -1725,7 +1725,7 @@ main(int argc, char **argv)
 				if (nd_load_smi_module(optarg, ebuf, sizeof(ebuf)) == -1)
 					error("%s", ebuf);
 			} else {
-				(void)fprintf(stderr, "%s: ignoring option `-m %s' ",
+				(void)fprintf(stderr, "%s: ignoring option '-m %s' ",
 					      program_name, optarg);
 				(void)fprintf(stderr, "(no libsmi support)\n");
 			}
@@ -1769,7 +1769,7 @@ main(int argc, char **argv)
 			else if (ascii_strcasecmp(optarg, "inout") == 0)
 				Qflag = PCAP_D_INOUT;
 			else
-				error("unknown capture direction `%s'", optarg);
+				error("unknown capture direction '%s'", optarg);
 			break;
 #endif /* HAVE_PCAP_SETDIRECTION */
 
@@ -1835,7 +1835,7 @@ main(int argc, char **argv)
 			else if (ascii_strcasecmp(optarg, "domain") == 0)
 				ndo->ndo_packettype = PT_DOMAIN;
 			else
-				error("unknown packet type `%s'", optarg);
+				error("unknown packet type '%s'", optarg);
 			break;
 
 		case 'u':

@@ -105,6 +105,8 @@ extern int SIZE_BUF;
 netdissect_options Gndo;
 netdissect_options *gndo = &Gndo;
 
+/* TODO: my patch */
+
 static int Dflag;			/* list available devices and exit */
 static int dflag;			/* print filter code */
 static int Lflag;			/* list available data link types and exit */

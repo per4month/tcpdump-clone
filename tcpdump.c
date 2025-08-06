@@ -197,6 +197,8 @@ static int Dflag;			/* list available devices and exit */
 static char *remote_interfaces_source;	/* list available devices from this source and exit */
 #endif
 
+/* TODO: my patch */
+
 /*
  * This is exported because, in some versions of libpcap, if libpcap
  * is built with optimizer debugging code (which is *NOT* the default

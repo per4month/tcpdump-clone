@@ -19,35 +19,25 @@
  * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  */
 
-#ifndef lint
-static const char rcsid[] _U_ =
-    "@(#) $Header: /tcpdump/master/tcpdump/print-raw.c,v 1.41 2003-11-16 09:36:34 guy Exp $ (LBL)";
-#endif
+/* \summary: Raw IP printer */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
+#include <config.h>
 
-#include <tcpdump-stdinc.h>
+#include "netdissect-stdinc.h"
 
-#include <pcap.h>
-#include <stdio.h>
-#include <string.h>
-
-#include "addrtoname.h"
-#include "interface.h"
+#include "netdissect.h"
 
 /*
  * The DLT_RAW packet has no header. It contains a raw IP packet.
  */
 
-u_int
-raw_if_print(const struct pcap_pkthdr *h, const u_char *p)
+void
+raw_if_print(netdissect_options *ndo, const struct pcap_pkthdr *h, const u_char *p)
 {
-	if (eflag)
-		printf("ip: ");
+	ndo->ndo_protocol = "raw";
+	ndo->ndo_ll_hdr_len += 0;
+	if (ndo->ndo_eflag)
+		ND_PRINT("ip: ");
 
-	ipN_print(p, h->len);
-
-	return (0);
+	ipN_print(ndo, p, h->len);
 }

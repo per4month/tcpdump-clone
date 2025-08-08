@@ -18,57 +18,48 @@
  * WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED WARRANTIES OF
  * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  */
-#ifndef lint
-static const char rcsid[] _U_ =
-    "@(#) $Header: /tcpdump/master/tcpdump/print-symantec.c,v 1.5 2005-07-07 01:22:21 guy Exp $ (LBL)";
-#endif
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
+/* \summary: Symantec Enterprise Firewall printer */
 
-#include <tcpdump-stdinc.h>
+#include <config.h>
 
-#include <stdio.h>
-#include <pcap.h>
+#include "netdissect-stdinc.h"
 
-#include "interface.h"
+#define ND_LONGJMP_FROM_TCHECK
+#include "netdissect.h"
 #include "extract.h"
-#include "addrtoname.h"
 #include "ethertype.h"
 
-#include "ether.h"
-
 struct symantec_header {
-	u_int8_t  stuff1[6];
-	u_int16_t ether_type;
-	u_int8_t  stuff2[36];
+	nd_byte     stuff1[6];
+	nd_uint16_t ether_type;
+	nd_byte     stuff2[36];
 };
 
-static inline void
-symantec_hdr_print(register const u_char *bp, u_int length)
+static void
+symantec_hdr_print(netdissect_options *ndo, const u_char *bp, u_int length)
 {
-	register const struct symantec_header *sp;
-	u_int16_t etype;
+	const struct symantec_header *sp;
+	uint16_t etype;
 
 	sp = (const struct symantec_header *)bp;
 
-	etype = EXTRACT_16BITS(&sp->ether_type);
-	if (!qflag) {
-	        if (etype <= ETHERMTU)
-		          (void)printf("invalid ethertype %u", etype);
-                else 
-		          (void)printf("ethertype %s (0x%04x)",
+	etype = GET_BE_U_2(sp->ether_type);
+	if (!ndo->ndo_qflag) {
+	        if (etype <= MAX_ETHERNET_LENGTH_VAL)
+		          ND_PRINT("invalid ethertype %u", etype);
+                else
+		          ND_PRINT("ethertype %s (0x%04x)",
 				       tok2str(ethertype_values,"Unknown", etype),
                                        etype);
         } else {
-                if (etype <= ETHERMTU)
-                          (void)printf("invalid ethertype %u", etype);
-                else 
-                          (void)printf("%s", tok2str(ethertype_values,"Unknown Ethertype (0x%04x)", etype));  
+                if (etype <= MAX_ETHERNET_LENGTH_VAL)
+                          ND_PRINT("invalid ethertype %u", etype);
+                else
+                          ND_PRINT("%s", tok2str(ethertype_values,"Unknown Ethertype (0x%04x)", etype));
         }
 
-	(void)printf(", length %u: ", length);
+	ND_PRINT(", length %u: ", length);
 }
 
 /*
@@ -77,44 +68,41 @@ symantec_hdr_print(register const u_char *bp, u_int length)
  * 'h->len' is the length of the packet off the wire, and 'h->caplen'
  * is the number of bytes actually captured.
  */
-u_int
-symantec_if_print(const struct pcap_pkthdr *h, const u_char *p)
+void
+symantec_if_print(netdissect_options *ndo, const struct pcap_pkthdr *h, const u_char *p)
 {
 	u_int length = h->len;
 	u_int caplen = h->caplen;
-	struct symantec_header *sp;
+	const struct symantec_header *sp;
 	u_short ether_type;
 
-	if (caplen < sizeof (struct symantec_header)) {
-		printf("[|symantec]");
-		return caplen;
-	}
+	ndo->ndo_protocol = "symantec";
+	ND_TCHECK_LEN(p, sizeof(struct symantec_header));
 
-	if (eflag)
-		symantec_hdr_print(p, length);
+	ndo->ndo_ll_hdr_len += sizeof (struct symantec_header);
+	if (ndo->ndo_eflag)
+		symantec_hdr_print(ndo, p, length);
 
 	length -= sizeof (struct symantec_header);
 	caplen -= sizeof (struct symantec_header);
-	sp = (struct symantec_header *)p;
+	sp = (const struct symantec_header *)p;
 	p += sizeof (struct symantec_header);
 
-	ether_type = EXTRACT_16BITS(&sp->ether_type);
+	ether_type = GET_BE_U_2(sp->ether_type);
 
-	if (ether_type <= ETHERMTU) {
+	if (ether_type <= MAX_ETHERNET_LENGTH_VAL) {
 		/* ether_type not known, print raw packet */
-		if (!eflag)
-			symantec_hdr_print((u_char *)sp, length + sizeof (struct symantec_header));
+		if (!ndo->ndo_eflag)
+			symantec_hdr_print(ndo, (const u_char *)sp, length + sizeof (struct symantec_header));
 
-		if (!suppress_default_print)
-			default_print(p, caplen);
-	} else if (ethertype_print(gndo, ether_type, p, length, caplen) == 0) {
+		if (!ndo->ndo_suppress_default_print)
+			ND_DEFAULTPRINT(p, caplen);
+	} else if (ethertype_print(ndo, ether_type, p, length, caplen, NULL, NULL) == 0) {
 		/* ether_type not known, print raw packet */
-		if (!eflag)
-			symantec_hdr_print((u_char *)sp, length + sizeof (struct symantec_header));
+		if (!ndo->ndo_eflag)
+			symantec_hdr_print(ndo, (const u_char *)sp, length + sizeof (struct symantec_header));
 
-		if (!suppress_default_print)
-			default_print(p, caplen);
-	} 
-
-	return (sizeof (struct symantec_header));
+		if (!ndo->ndo_suppress_default_print)
+			ND_DEFAULTPRINT(p, caplen);
+	}
 }

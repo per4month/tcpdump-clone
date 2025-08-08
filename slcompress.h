@@ -1,8 +1,6 @@
 /*
  * Definitions for tcp compression routines.
  *
- * @(#) $Header: /tcpdump/master/tcpdump/slcompress.h,v 1.2 2000-10-09 02:03:44 guy Exp $ (LBL)
- *
  * Copyright (c) 1989, 1990, 1992, 1993 Regents of the University of
  * California. All rights reserved.
  *
@@ -16,7 +14,7 @@
  * from this software without specific prior written permission.
  * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
- * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  *
  *	Van Jacobson (van@ee.lbl.gov), Dec 31, 1989:
  *	- Initial distribution.
@@ -37,7 +35,7 @@
  *
  * There are 5 numbers which can change (they are always inserted
  * in the following order): TCP urgent pointer, window,
- * acknowlegement, sequence number and IP ID.  (The urgent pointer
+ * acknowledgement, sequence number and IP ID.  (The urgent pointer
  * is different from the others in that its value is sent, not the
  * change in value.)  Since typical use of SLIP links is biased
  * toward small packets (see comments on MTU/MSS below), changes

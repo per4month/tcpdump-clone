@@ -7,30 +7,155 @@
  * BSD-style license that accompanies tcpdump or the GNU GPL version 2
  */
 
-#ifndef lint
-static const char rcsid[] _U_ =
-    "@(#) $Header: /tcpdump/master/tcpdump/print-dccp.c,v 1.8 2007-11-09 00:44:09 guy Exp $ (LBL)";
-#endif
+/* \summary: Datagram Congestion Control Protocol (DCCP) printer */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
+/* specification: RFC 4340 */
 
-#include <tcpdump-stdinc.h>
+#include <config.h>
 
-#include "dccp.h"
+#include "netdissect-stdinc.h"
 
-#include <stdio.h>
-#include <string.h>
-
-#include "interface.h"
+#include "netdissect.h"
 #include "addrtoname.h"
-#include "extract.h"			/* must come after interface.h */
+#include "extract.h"
 #include "ip.h"
-#ifdef INET6
 #include "ip6.h"
-#endif
 #include "ipproto.h"
+
+/* RFC4340: Datagram Congestion Control Protocol (DCCP) */
+
+/**
+ * struct dccp_hdr - generic part of DCCP packet header, with a 24-bit
+ * sequence number
+ *
+ * @dccph_sport - Relevant port on the endpoint that sent this packet
+ * @dccph_dport - Relevant port on the other endpoint
+ * @dccph_doff - Data Offset from the start of the DCCP header, in 32-bit words
+ * @dccph_ccval - Used by the HC-Sender CCID
+ * @dccph_cscov - Parts of the packet that are covered by the Checksum field
+ * @dccph_checksum - Internet checksum, depends on dccph_cscov
+ * @dccph_x - 0 = 24 bit sequence number, 1 = 48
+ * @dccph_type - packet type, see DCCP_PKT_ prefixed macros
+ * @dccph_seq - 24-bit sequence number
+ */
+struct dccp_hdr {
+	nd_uint16_t	dccph_sport,
+			dccph_dport;
+	nd_uint8_t	dccph_doff;
+	nd_uint8_t	dccph_ccval_cscov;
+	nd_uint16_t	dccph_checksum;
+	nd_uint8_t	dccph_xtr;
+	nd_uint24_t	dccph_seq;
+};
+
+/**
+ * struct dccp_hdr_ext - generic part of DCCP packet header, with a 48-bit
+ * sequence number
+ *
+ * @dccph_sport - Relevant port on the endpoint that sent this packet
+ * @dccph_dport - Relevant port on the other endpoint
+ * @dccph_doff - Data Offset from the start of the DCCP header, in 32-bit words
+ * @dccph_ccval - Used by the HC-Sender CCID
+ * @dccph_cscov - Parts of the packet that are covered by the Checksum field
+ * @dccph_checksum - Internet checksum, depends on dccph_cscov
+ * @dccph_x - 0 = 24 bit sequence number, 1 = 48
+ * @dccph_type - packet type, see DCCP_PKT_ prefixed macros
+ * @dccph_seq - 48-bit sequence number
+ */
+struct dccp_hdr_ext {
+	nd_uint16_t	dccph_sport,
+			dccph_dport;
+	nd_uint8_t	dccph_doff;
+	nd_uint8_t	dccph_ccval_cscov;
+	nd_uint16_t	dccph_checksum;
+	nd_uint8_t	dccph_xtr;
+	nd_uint8_t	reserved;
+	nd_uint48_t	dccph_seq;
+};
+
+#define DCCPH_CCVAL(dh)	((GET_U_1((dh)->dccph_ccval_cscov) >> 4) & 0xF)
+#define DCCPH_CSCOV(dh)	(GET_U_1((dh)->dccph_ccval_cscov) & 0xF)
+
+#define DCCPH_X(dh)	(GET_U_1((dh)->dccph_xtr) & 1)
+#define DCCPH_TYPE(dh)	((GET_U_1((dh)->dccph_xtr) >> 1) & 0xF)
+
+/**
+ * struct dccp_hdr_request - Connection initiation request header
+ *
+ * @dccph_req_service - Service to which the client app wants to connect
+ */
+struct dccp_hdr_request {
+	nd_uint32_t	dccph_req_service;
+};
+
+/**
+ * struct dccp_hdr_response - Connection initiation response header
+ *
+ * @dccph_resp_ack - 48 bit ack number, contains GSR
+ * @dccph_resp_service - Echoes the Service Code on a received DCCP-Request
+ */
+struct dccp_hdr_response {
+	nd_uint64_t	dccph_resp_ack;	/* always 8 bytes, first 2 reserved */
+	nd_uint32_t	dccph_resp_service;
+};
+
+/**
+ * struct dccp_hdr_reset - Unconditionally shut down a connection
+ *
+ * @dccph_resp_ack - 48 bit ack number
+ * @dccph_reset_service - Echoes the Service Code on a received DCCP-Request
+ */
+struct dccp_hdr_reset {
+	nd_uint64_t	dccph_reset_ack;	/* always 8 bytes, first 2 reserved */
+	nd_uint8_t	dccph_reset_code;
+	nd_uint8_t	dccph_reset_data1;
+	nd_uint8_t	dccph_reset_data2;
+	nd_uint8_t	dccph_reset_data3;
+};
+
+enum dccp_pkt_type {
+	DCCP_PKT_REQUEST = 0,
+	DCCP_PKT_RESPONSE,
+	DCCP_PKT_DATA,
+	DCCP_PKT_ACK,
+	DCCP_PKT_DATAACK,
+	DCCP_PKT_CLOSEREQ,
+	DCCP_PKT_CLOSE,
+	DCCP_PKT_RESET,
+	DCCP_PKT_SYNC,
+	DCCP_PKT_SYNCACK
+};
+
+static const struct tok dccp_pkt_type_str[] = {
+	{ DCCP_PKT_REQUEST, "DCCP-Request" },
+	{ DCCP_PKT_RESPONSE, "DCCP-Response" },
+	{ DCCP_PKT_DATA, "DCCP-Data" },
+	{ DCCP_PKT_ACK, "DCCP-Ack" },
+	{ DCCP_PKT_DATAACK, "DCCP-DataAck" },
+	{ DCCP_PKT_CLOSEREQ, "DCCP-CloseReq" },
+	{ DCCP_PKT_CLOSE, "DCCP-Close" },
+	{ DCCP_PKT_RESET, "DCCP-Reset" },
+	{ DCCP_PKT_SYNC, "DCCP-Sync" },
+	{ DCCP_PKT_SYNCACK, "DCCP-SyncAck" },
+	{ 0, NULL}
+};
+
+enum dccp_reset_codes {
+	DCCP_RESET_CODE_UNSPECIFIED = 0,
+	DCCP_RESET_CODE_CLOSED,
+	DCCP_RESET_CODE_ABORTED,
+	DCCP_RESET_CODE_NO_CONNECTION,
+	DCCP_RESET_CODE_PACKET_ERROR,
+	DCCP_RESET_CODE_OPTION_ERROR,
+	DCCP_RESET_CODE_MANDATORY_ERROR,
+	DCCP_RESET_CODE_CONNECTION_REFUSED,
+	DCCP_RESET_CODE_BAD_SERVICE_CODE,
+	DCCP_RESET_CODE_TOO_BUSY,
+	DCCP_RESET_CODE_BAD_INIT_COOKIE,
+	DCCP_RESET_CODE_AGGRESSION_PENALTY,
+	__DCCP_RESET_CODE_LAST
+};
+
 
 static const char *dccp_reset_codes[] = {
 	"unspecified",
@@ -48,417 +173,531 @@ static const char *dccp_reset_codes[] = {
 };
 
 static const char *dccp_feature_nums[] = {
-	"reserved", 
+	"reserved",
 	"ccid",
 	"allow_short_seqno",
 	"sequence_window",
-	"ecn_incapable", 
-	"ack_ratio",     
+	"ecn_incapable",
+	"ack_ratio",
 	"send_ack_vector",
-	"send_ndp_count", 
-	"minimum checksum coverage", 
+	"send_ndp_count",
+	"minimum checksum coverage",
 	"check data checksum",
 };
 
-static inline u_int dccp_csum_coverage(const struct dccp_hdr* dh, u_int len)
+static u_int
+dccp_csum_coverage(netdissect_options *ndo,
+		   const struct dccp_hdr *dh, u_int len)
 {
 	u_int cov;
-	
+
 	if (DCCPH_CSCOV(dh) == 0)
 		return len;
-	cov = (dh->dccph_doff + DCCPH_CSCOV(dh) - 1) * sizeof(u_int32_t);
+	cov = (GET_U_1(dh->dccph_doff) + DCCPH_CSCOV(dh) - 1) * sizeof(uint32_t);
 	return (cov > len)? len : cov;
 }
 
-static int dccp_cksum(const struct ip *ip,
+static uint16_t dccp_cksum(netdissect_options *ndo, const struct ip *ip,
 	const struct dccp_hdr *dh, u_int len)
 {
-	return nextproto4_cksum(ip, (const u_int8_t *)(void *)dh,
-	    dccp_csum_coverage(dh, len), IPPROTO_DCCP);
+	return nextproto4_cksum(ndo, ip, (const uint8_t *)(const void *)dh, len,
+				dccp_csum_coverage(ndo, dh, len), IPPROTO_DCCP);
 }
 
-#ifdef INET6
-static int dccp6_cksum(const struct ip6_hdr *ip6, const struct dccp_hdr *dh, u_int len)
+static uint16_t dccp6_cksum(netdissect_options *ndo, const struct ip6_hdr *ip6,
+	const struct dccp_hdr *dh, u_int len)
 {
-	return nextproto6_cksum(ip6, (const u_int8_t *)(void *)dh,
-	    dccp_csum_coverage(dh, len), IPPROTO_DCCP);
+	return nextproto6_cksum(ndo, ip6, (const uint8_t *)(const void *)dh, len,
+				dccp_csum_coverage(ndo, dh, len), IPPROTO_DCCP);
 }
-#endif
 
-static const char *dccp_reset_code(u_int8_t code)
+static const char *dccp_reset_code(uint8_t code)
 {
 	if (code >= __DCCP_RESET_CODE_LAST)
 		return "invalid";
 	return dccp_reset_codes[code];
 }
 
-static u_int64_t dccp_seqno(const struct dccp_hdr *dh)
+static uint64_t
+dccp_seqno(netdissect_options *ndo, const u_char *bp)
 {
-	u_int32_t seq_high = DCCPH_SEQ(dh);
-	u_int64_t seqno = EXTRACT_24BITS(&seq_high) & 0xFFFFFF;
+	const struct dccp_hdr *dh = (const struct dccp_hdr *)bp;
+	uint64_t seqno;
 
 	if (DCCPH_X(dh) != 0) {
-		const struct dccp_hdr_ext *dhx = (void *)(dh + 1);
-		u_int32_t seq_low = dhx->dccph_seq_low;
-		seqno &= 0x00FFFF;  /* clear reserved field */
-		seqno = (seqno << 32) + EXTRACT_32BITS(&seq_low);
+		const struct dccp_hdr_ext *dhx = (const struct dccp_hdr_ext *)bp;
+		seqno = GET_BE_U_6(dhx->dccph_seq);
+	} else {
+		seqno = GET_BE_U_3(dh->dccph_seq);
 	}
 
 	return seqno;
 }
 
-static inline unsigned int dccp_basic_hdr_len(const struct dccp_hdr *dh)
+static unsigned int
+dccp_basic_hdr_len(netdissect_options *ndo, const struct dccp_hdr *dh)
 {
-	return sizeof(*dh) + (DCCPH_X(dh) ? sizeof(struct dccp_hdr_ext) : 0);
+	return DCCPH_X(dh) ? sizeof(struct dccp_hdr_ext) : sizeof(struct dccp_hdr);
 }
 
-static void dccp_print_ack_no(const u_char *bp)
+static void dccp_print_ack_no(netdissect_options *ndo, const u_char *bp)
 {
 	const struct dccp_hdr *dh = (const struct dccp_hdr *)bp;
-	const struct dccp_hdr_ack_bits *dh_ack =
-		(struct dccp_hdr_ack_bits *)(bp + dccp_basic_hdr_len(dh));
-	u_int32_t ack_high;
-	u_int64_t ackno;
-
-	TCHECK2(*dh_ack,4);
-	ack_high = DCCPH_ACK(dh_ack);
-	ackno = EXTRACT_24BITS(&ack_high) & 0xFFFFFF;
+	const u_char *ackp = bp + dccp_basic_hdr_len(ndo, dh);
+	uint64_t ackno;
 
 	if (DCCPH_X(dh) != 0) {
-		u_int32_t ack_low;
-
-		TCHECK2(*dh_ack,8);
-		ack_low = dh_ack->dccph_ack_nr_low;
-
-		ackno &= 0x00FFFF;  /* clear reserved field */
-		ackno = (ackno << 32) + EXTRACT_32BITS(&ack_low);
+		ackno = GET_BE_U_6(ackp + 2);
+	} else {
+		ackno = GET_BE_U_3(ackp + 1);
 	}
 
-	(void)printf("(ack=%" PRIu64 ") ", ackno);
-trunc:
-	return;
+	ND_PRINT("(ack=%" PRIu64 ") ", ackno);
 }
 
-static inline unsigned int dccp_packet_hdr_len(const u_int8_t type)
-{
-	if (type == DCCP_PKT_DATA)
-		return 0;
-	if (type == DCCP_PKT_DATAACK	||
-	    type == DCCP_PKT_ACK	||
-	    type == DCCP_PKT_SYNC	||
-	    type == DCCP_PKT_SYNCACK	||
-	    type == DCCP_PKT_CLOSE	||
-	    type == DCCP_PKT_CLOSEREQ)
-		return sizeof(struct dccp_hdr_ack_bits);
-	if (type == DCCP_PKT_REQUEST)
-		return sizeof(struct dccp_hdr_request);
-	if (type == DCCP_PKT_RESPONSE)
-		return sizeof(struct dccp_hdr_response);
-	return sizeof(struct dccp_hdr_reset);
-}
-
-static int dccp_print_option(const u_char *option);
+static u_int dccp_print_option(netdissect_options *, const u_char *, u_int);
 
 /**
  * dccp_print - show dccp packet
  * @bp - beginning of dccp packet
- * @data2 - beginning of enclosing 
- * @len - lenght of ip packet
+ * @data2 - beginning of enclosing
+ * @len - length of ip packet
  */
-void dccp_print(const u_char *bp, const u_char *data2, u_int len)
+void
+dccp_print(netdissect_options *ndo, const u_char *bp, const u_char *data2,
+	   u_int len)
 {
 	const struct dccp_hdr *dh;
 	const struct ip *ip;
-#ifdef INET6
 	const struct ip6_hdr *ip6;
-#endif
 	const u_char *cp;
 	u_short sport, dport;
 	u_int hlen;
-	u_int extlen = 0;
+	u_int fixed_hdrlen;
+	uint8_t	dccph_type;
 
+	ndo->ndo_protocol = "dccp";
 	dh = (const struct dccp_hdr *)bp;
 
-	ip = (struct ip *)data2;
-#ifdef INET6
+	ip = (const struct ip *)data2;
 	if (IP_V(ip) == 6)
 		ip6 = (const struct ip6_hdr *)data2;
 	else
 		ip6 = NULL;
-#endif /*INET6*/
+
+	/* make sure we have enough data to look at the X bit */
 	cp = (const u_char *)(dh + 1);
-	if (cp > snapend) {
-		printf("[Invalid packet|dccp]");
-		return;
-	}
-
+	if (cp > ndo->ndo_snapend)
+		goto trunc;
 	if (len < sizeof(struct dccp_hdr)) {
-		printf("truncated-dccp - %ld bytes missing!",
-			     (long)len - sizeof(struct dccp_hdr));
+		ND_PRINT("truncated-dccp - %zu bytes missing!",
+			 sizeof(struct dccp_hdr) - len);
 		return;
 	}
 
-	sport = EXTRACT_16BITS(&dh->dccph_sport);
-	dport = EXTRACT_16BITS(&dh->dccph_dport);
-	hlen = dh->dccph_doff * 4;
-
-#ifdef INET6
-	if (ip6) {
-		(void)printf("%s.%d > %s.%d: ",
-			     ip6addr_string(&ip6->ip6_src), sport,
-			     ip6addr_string(&ip6->ip6_dst), dport);
-	} else
-#endif /*INET6*/
-	{
-		(void)printf("%s.%d > %s.%d: ",
-			     ipaddr_string(&ip->ip_src), sport,
-			     ipaddr_string(&ip->ip_dst), dport);
+	/* get the length of the generic header */
+	fixed_hdrlen = dccp_basic_hdr_len(ndo, dh);
+	if (len < fixed_hdrlen) {
+		ND_PRINT("truncated-dccp - %u bytes missing!",
+			  fixed_hdrlen - len);
+		return;
 	}
-	fflush(stdout);
+	ND_TCHECK_LEN(dh, fixed_hdrlen);
 
-	if (qflag) {
-		(void)printf(" %d", len - hlen);
+	sport = GET_BE_U_2(dh->dccph_sport);
+	dport = GET_BE_U_2(dh->dccph_dport);
+	hlen = GET_U_1(dh->dccph_doff) * 4;
+
+	if (ip6) {
+		ND_PRINT("%s.%u > %s.%u: ",
+			  GET_IP6ADDR_STRING(ip6->ip6_src), sport,
+			  GET_IP6ADDR_STRING(ip6->ip6_dst), dport);
+	} else {
+		ND_PRINT("%s.%u > %s.%u: ",
+			  GET_IPADDR_STRING(ip->ip_src), sport,
+			  GET_IPADDR_STRING(ip->ip_dst), dport);
+	}
+
+	nd_print_protocol_caps(ndo);
+
+	if (ndo->ndo_qflag) {
+		ND_PRINT(" %u", len - hlen);
 		if (hlen > len) {
-			(void)printf("dccp [bad hdr length %u - too long, > %u]",
-			    hlen, len);
+			ND_PRINT(" [bad hdr length %u - too long, > %u]",
+				  hlen, len);
 		}
 		return;
 	}
 
 	/* other variables in generic header */
-	if (vflag) {
-		(void)printf("CCVal %d, CsCov %d, ", DCCPH_CCVAL(dh), DCCPH_CSCOV(dh));
+	if (ndo->ndo_vflag) {
+		ND_PRINT(" (CCVal %u, CsCov %u", DCCPH_CCVAL(dh), DCCPH_CSCOV(dh));
 	}
 
 	/* checksum calculation */
-	if (vflag && TTEST2(bp[0], len)) {
-		u_int16_t sum = 0, dccp_sum;
+	if (ndo->ndo_vflag && ND_TTEST_LEN(bp, len)) {
+		uint16_t sum = 0, dccp_sum;
 
-		dccp_sum = EXTRACT_16BITS(&dh->dccph_checksum);
-		(void)printf("cksum 0x%04x ", dccp_sum);
+		dccp_sum = GET_BE_U_2(dh->dccph_checksum);
+		ND_PRINT(", cksum 0x%04x ", dccp_sum);
 		if (IP_V(ip) == 4)
-			sum = dccp_cksum(ip, dh, len);
-#ifdef INET6
+			sum = dccp_cksum(ndo, ip, dh, len);
 		else if (IP_V(ip) == 6)
-			sum = dccp6_cksum(ip6, dh, len);
-#endif
+			sum = dccp6_cksum(ndo, ip6, dh, len);
 		if (sum != 0)
-			(void)printf("(incorrect -> 0x%04x), ",in_cksum_shouldbe(dccp_sum, sum));
+			ND_PRINT("(incorrect -> 0x%04x)",in_cksum_shouldbe(dccp_sum, sum));
 		else
-			(void)printf("(correct), ");
+			ND_PRINT("(correct)");
 	}
 
-	switch (DCCPH_TYPE(dh)) {
+	if (ndo->ndo_vflag)
+		ND_PRINT(")");
+	ND_PRINT(" ");
+
+	dccph_type = DCCPH_TYPE(dh);
+	switch (dccph_type) {
 	case DCCP_PKT_REQUEST: {
-		struct dccp_hdr_request *dhr =
-			(struct dccp_hdr_request *)(bp + dccp_basic_hdr_len(dh));
-		TCHECK(*dhr);
-		(void)printf("request (service=%d) ",
-			     EXTRACT_32BITS(&dhr->dccph_req_service));
-		extlen += 4;
+		const struct dccp_hdr_request *dhr =
+			(const struct dccp_hdr_request *)(bp + fixed_hdrlen);
+		fixed_hdrlen += 4;
+		if (len < fixed_hdrlen) {
+			ND_PRINT("truncated-%s - %u bytes missing!",
+				  tok2str(dccp_pkt_type_str, "", dccph_type),
+				  fixed_hdrlen - len);
+			return;
+		}
+		ND_TCHECK_SIZE(dhr);
+		ND_PRINT("%s (service=%u) ",
+			  tok2str(dccp_pkt_type_str, "", dccph_type),
+			  GET_BE_U_4(dhr->dccph_req_service));
 		break;
 	}
 	case DCCP_PKT_RESPONSE: {
-		struct dccp_hdr_response *dhr =
-			(struct dccp_hdr_response *)(bp + dccp_basic_hdr_len(dh));
-		TCHECK(*dhr);
-		(void)printf("response (service=%d) ",
-			     EXTRACT_32BITS(&dhr->dccph_resp_service));
-		extlen += 12;
+		const struct dccp_hdr_response *dhr =
+			(const struct dccp_hdr_response *)(bp + fixed_hdrlen);
+		fixed_hdrlen += 12;
+		if (len < fixed_hdrlen) {
+			ND_PRINT("truncated-%s - %u bytes missing!",
+				  tok2str(dccp_pkt_type_str, "", dccph_type),
+				  fixed_hdrlen - len);
+			return;
+		}
+		ND_TCHECK_SIZE(dhr);
+		ND_PRINT("%s (service=%u) ",
+			  tok2str(dccp_pkt_type_str, "", dccph_type),
+			  GET_BE_U_4(dhr->dccph_resp_service));
 		break;
 	}
 	case DCCP_PKT_DATA:
-		(void)printf("data ");
+		ND_PRINT("%s ", tok2str(dccp_pkt_type_str, "", dccph_type));
 		break;
 	case DCCP_PKT_ACK: {
-		(void)printf("ack ");
-		extlen += 8;
+		fixed_hdrlen += 8;
+		if (len < fixed_hdrlen) {
+			ND_PRINT("truncated-%s - %u bytes missing!",
+				  tok2str(dccp_pkt_type_str, "", dccph_type),
+				  fixed_hdrlen - len);
+			return;
+		}
+		ND_PRINT("%s ", tok2str(dccp_pkt_type_str, "", dccph_type));
 		break;
 	}
 	case DCCP_PKT_DATAACK: {
-		(void)printf("dataack ");
-		extlen += 8;
+		fixed_hdrlen += 8;
+		if (len < fixed_hdrlen) {
+			ND_PRINT("truncated-%s - %u bytes missing!",
+				  tok2str(dccp_pkt_type_str, "", dccph_type),
+				  fixed_hdrlen - len);
+			return;
+		}
+		ND_PRINT("%s ", tok2str(dccp_pkt_type_str, "", dccph_type));
 		break;
 	}
 	case DCCP_PKT_CLOSEREQ:
-		(void)printf("closereq ");
-		extlen += 8;
+		fixed_hdrlen += 8;
+		if (len < fixed_hdrlen) {
+			ND_PRINT("truncated-%s - %u bytes missing!",
+				  tok2str(dccp_pkt_type_str, "", dccph_type),
+				  fixed_hdrlen - len);
+			return;
+		}
+		ND_PRINT("%s ", tok2str(dccp_pkt_type_str, "", dccph_type));
 		break;
 	case DCCP_PKT_CLOSE:
-		(void)printf("close ");
-		extlen += 8;
+		fixed_hdrlen += 8;
+		if (len < fixed_hdrlen) {
+			ND_PRINT("truncated-%s - %u bytes missing!",
+				  tok2str(dccp_pkt_type_str, "", dccph_type),
+				  fixed_hdrlen - len);
+			return;
+		}
+		ND_PRINT("%s ", tok2str(dccp_pkt_type_str, "", dccph_type));
 		break;
 	case DCCP_PKT_RESET: {
-		struct dccp_hdr_reset *dhr =
-			(struct dccp_hdr_reset *)(bp + dccp_basic_hdr_len(dh));
-		TCHECK(*dhr);
-		(void)printf("reset (code=%s) ",
-			     dccp_reset_code(dhr->dccph_reset_code));
-		extlen += 12;
+		const struct dccp_hdr_reset *dhr =
+			(const struct dccp_hdr_reset *)(bp + fixed_hdrlen);
+		fixed_hdrlen += 12;
+		if (len < fixed_hdrlen) {
+			ND_PRINT("truncated-%s - %u bytes missing!",
+				  tok2str(dccp_pkt_type_str, "", dccph_type),
+				  fixed_hdrlen - len);
+			return;
+		}
+		ND_TCHECK_SIZE(dhr);
+		ND_PRINT("%s (code=%s) ",
+			  tok2str(dccp_pkt_type_str, "", dccph_type),
+			  dccp_reset_code(GET_U_1(dhr->dccph_reset_code)));
 		break;
 	}
 	case DCCP_PKT_SYNC:
-		(void)printf("sync ");
-		extlen += 8;
+		fixed_hdrlen += 8;
+		if (len < fixed_hdrlen) {
+			ND_PRINT("truncated-%s - %u bytes missing!",
+				  tok2str(dccp_pkt_type_str, "", dccph_type),
+				  fixed_hdrlen - len);
+			return;
+		}
+		ND_PRINT("%s ", tok2str(dccp_pkt_type_str, "", dccph_type));
 		break;
 	case DCCP_PKT_SYNCACK:
-		(void)printf("syncack ");
-		extlen += 8;
+		fixed_hdrlen += 8;
+		if (len < fixed_hdrlen) {
+			ND_PRINT("truncated-%s - %u bytes missing!",
+				  tok2str(dccp_pkt_type_str, "", dccph_type),
+				  fixed_hdrlen - len);
+			return;
+		}
+		ND_PRINT("%s ", tok2str(dccp_pkt_type_str, "", dccph_type));
 		break;
 	default:
-		(void)printf("invalid ");
+		ND_PRINT("%s ", tok2str(dccp_pkt_type_str, "unknown-type-%u", dccph_type));
 		break;
 	}
 
-	if ((DCCPH_TYPE(dh) != DCCP_PKT_DATA) && 
+	if ((DCCPH_TYPE(dh) != DCCP_PKT_DATA) &&
 			(DCCPH_TYPE(dh) != DCCP_PKT_REQUEST))
-		dccp_print_ack_no(bp);
+		dccp_print_ack_no(ndo, bp);
 
-	if (vflag < 2)
+	if (ndo->ndo_vflag < 2)
 		return;
 
-	(void)printf("seq %" PRIu64, dccp_seqno(dh));
+	ND_PRINT("seq %" PRIu64, dccp_seqno(ndo, bp));
 
 	/* process options */
-	if (hlen > dccp_basic_hdr_len(dh) + extlen){
-		const u_char *cp;
+	if (hlen > fixed_hdrlen){
 		u_int optlen;
-		cp = bp + dccp_basic_hdr_len(dh) + extlen;
-		printf(" <");	
+		cp = bp + fixed_hdrlen;
+		ND_PRINT(" <");
 
-		hlen -= dccp_basic_hdr_len(dh) + extlen;
+		hlen -= fixed_hdrlen;
 		while(1){
-			TCHECK(*cp);
-			optlen = dccp_print_option(cp);
-			if (!optlen) goto trunc2;
-			if (hlen <= optlen) break; 
+			optlen = dccp_print_option(ndo, cp, hlen);
+			if (!optlen)
+				break;
+			if (hlen <= optlen)
+				break;
 			hlen -= optlen;
 			cp += optlen;
-			printf(", ");
+			ND_PRINT(", ");
 		}
-		printf(">");	
+		ND_PRINT(">");
 	}
 	return;
 trunc:
-	printf("[|dccp]");
-trunc2:
-	return;
+	nd_print_trunc(ndo);
 }
 
-static int dccp_print_option(const u_char *option)
-{	
-	u_int8_t optlen, i;
+static const struct tok dccp_option_values[] = {
+	{ 0, "nop" },
+	{ 1, "mandatory" },
+	{ 2, "slowreceiver" },
+	{ 32, "change_l" },
+	{ 33, "confirm_l" },
+	{ 34, "change_r" },
+	{ 35, "confirm_r" },
+	{ 36, "initcookie" },
+	{ 37, "ndp_count" },
+	{ 38, "ack_vector0" },
+	{ 39, "ack_vector1" },
+	{ 40, "data_dropped" },
+	{ 41, "timestamp" },
+	{ 42, "timestamp_echo" },
+	{ 43, "elapsed_time" },
+	{ 44, "data_checksum" },
+	{ 0, NULL }
+};
 
-	TCHECK(*option);
+static u_int
+dccp_print_option(netdissect_options *ndo, const u_char *option, u_int hlen)
+{
+	uint8_t optlen, i;
 
-	if (*option >= 32) {
-		TCHECK(*(option+1));
-		optlen = *(option +1);
+	if (GET_U_1(option) >= 32) {
+		optlen = GET_U_1(option + 1);
 		if (optlen < 2) {
-			printf("Option %d optlen too short",*option);
-			return 1;
+			if (GET_U_1(option) >= 128)
+				ND_PRINT("CCID option %u optlen too short",
+					 GET_U_1(option));
+			else
+				ND_PRINT("%s optlen too short",
+					  tok2str(dccp_option_values, "Option %u", GET_U_1(option)));
+			return 0;
 		}
-	} else optlen = 1;
+	} else
+		optlen = 1;
 
-	TCHECK2(*option,optlen);
-
-	switch (*option){
-	case 0:
-		printf("nop");
-		break;	
-	case 1:
-		printf("mandatory");
-		break;	
-	case 2:
-		printf("slowreceiver");
-		break;	
-	case 32:
-		printf("change_l");
-		if (*(option +2) < 10){
-			printf(" %s", dccp_feature_nums[*(option +2)]);
-			for (i = 0; i < optlen -3; i ++) printf(" %d", *(option +3 + i));	
-		}
-		break;	
-	case 33:
-		printf("confirm_l");
-		if (*(option +2) < 10){
-			printf(" %s", dccp_feature_nums[*(option +2)]);
-			for (i = 0; i < optlen -3; i ++) printf(" %d", *(option +3 + i));	
-		}
-		break;
-	case 34:
-	        printf("change_r");
-		if (*(option +2) < 10){
-			printf(" %s", dccp_feature_nums[*(option +2)]);
-			for (i = 0; i < optlen -3; i ++) printf(" %d", *(option +3 + i));	
-		}
-		break;
-	case 35:
-		printf("confirm_r");
-		if (*(option +2) < 10){
-			printf(" %s", dccp_feature_nums[*(option +2)]);
-			for (i = 0; i < optlen -3; i ++) printf(" %d", *(option +3 + i));	
-		}
-		break;
-	case 36:
-		printf("initcookie 0x");
-		for (i = 0; i < optlen -2; i ++) printf("%02x", *(option +2 + i));	
-		break;
-	case 37:
-		printf("ndp_count");
-		for (i = 0; i < optlen -2; i ++) printf(" %d", *(option +2 + i));	
-		break;
-	case 38:
-		printf("ack_vector0 0x");
-		for (i = 0; i < optlen -2; i ++) printf("%02x", *(option +2 + i));	
-		break;
-	case 39:
-		printf("ack_vector1 0x");
-		for (i = 0; i < optlen -2; i ++) printf("%02x", *(option +2 + i));	
-		break;
-	case 40:
-		printf("data_dropped 0x");
-		for (i = 0; i < optlen -2; i ++) printf("%02x", *(option +2 + i));	
-		break;
-	case 41:
-		printf("timestamp %u", EXTRACT_32BITS(option + 2));
-		break;
-	case 42:
-		printf("timestamp_echo %u", EXTRACT_32BITS(option + 2));
-		break;
-	case 43:
-		printf("elapsed_time ");
-		if (optlen == 6)
-			printf("%u", EXTRACT_32BITS(option + 2));
+	if (hlen < optlen) {
+		if (GET_U_1(option) >= 128)
+			ND_PRINT("CCID option %u optlen goes past header length",
+				  GET_U_1(option));
 		else
-			printf("%u", EXTRACT_16BITS(option + 2));
-		break;
-	case 44:
-		printf("data_checksum ");
-		for (i = 0; i < optlen -2; i ++) printf("%02x", *(option +2 + i));	
-		break;
-	default :
-		if (*option >= 128) {
-			printf("CCID option %d",*option);
+			ND_PRINT("%s optlen goes past header length",
+				  tok2str(dccp_option_values, "Option %u", GET_U_1(option)));
+		return 0;
+	}
+	ND_TCHECK_LEN(option, optlen);
+
+	if (GET_U_1(option) >= 128) {
+		ND_PRINT("CCID option %u", GET_U_1(option));
+		switch (optlen) {
+			case 4:
+				ND_PRINT(" %u", GET_BE_U_2(option + 2));
+				break;
+			case 6:
+				ND_PRINT(" %u", GET_BE_U_4(option + 2));
+				break;
+			default:
+				break;
+		}
+	} else {
+		ND_PRINT("%s",
+			 tok2str(dccp_option_values, "Option %u", GET_U_1(option)));
+		switch (GET_U_1(option)) {
+		case 32:
+		case 33:
+		case 34:
+		case 35:
+			if (optlen < 3) {
+				ND_PRINT(" optlen too short");
+				return optlen;
+			}
+			if (GET_U_1(option + 2) < 10){
+				ND_PRINT(" %s",
+					 dccp_feature_nums[GET_U_1(option + 2)]);
+				for (i = 0; i < optlen - 3; i++)
+					ND_PRINT(" %u",
+						 GET_U_1(option + 3 + i));
+			}
+			break;
+		case 36:
+			if (optlen > 2) {
+				ND_PRINT(" 0x");
+				for (i = 0; i < optlen - 2; i++)
+					ND_PRINT("%02x",
+						 GET_U_1(option + 2 + i));
+			}
+			break;
+		case 37:
+			for (i = 0; i < optlen - 2; i++)
+				ND_PRINT(" %u", GET_U_1(option + 2 + i));
+			break;
+		case 38:
+			if (optlen > 2) {
+				ND_PRINT(" 0x");
+				for (i = 0; i < optlen - 2; i++)
+					ND_PRINT("%02x",
+						 GET_U_1(option + 2 + i));
+			}
+			break;
+		case 39:
+			if (optlen > 2) {
+				ND_PRINT(" 0x");
+				for (i = 0; i < optlen - 2; i++)
+					ND_PRINT("%02x",
+						 GET_U_1(option + 2 + i));
+			}
+			break;
+		case 40:
+			if (optlen > 2) {
+				ND_PRINT(" 0x");
+				for (i = 0; i < optlen - 2; i++)
+					ND_PRINT("%02x",
+						 GET_U_1(option + 2 + i));
+			}
+			break;
+		case 41:
+		/*
+		 * 13.1.  Timestamp Option
+		 *
+		 *  +--------+--------+--------+--------+--------+--------+
+		 *  |00101001|00000110|          Timestamp Value          |
+		 *  +--------+--------+--------+--------+--------+--------+
+		 *   Type=41  Length=6
+		 */
+			if (optlen == 6)
+				ND_PRINT(" %u", GET_BE_U_4(option + 2));
+			else
+				ND_PRINT(" [optlen != 6]");
+			break;
+		case 42:
+		/*
+		 * 13.3.  Timestamp Echo Option
+		 *
+		 *  +--------+--------+--------+--------+--------+--------+
+		 *  |00101010|00000110|           Timestamp Echo          |
+		 *  +--------+--------+--------+--------+--------+--------+
+		 *   Type=42    Len=6
+		 *
+		 *  +--------+--------+------- ... -------+--------+--------+
+		 *  |00101010|00001000|  Timestamp Echo   |   Elapsed Time  |
+		 *  +--------+--------+------- ... -------+--------+--------+
+		 *   Type=42    Len=8       (4 bytes)
+		 *
+		 *  +--------+--------+------- ... -------+------- ... -------+
+		 *  |00101010|00001010|  Timestamp Echo   |    Elapsed Time   |
+		 *  +--------+--------+------- ... -------+------- ... -------+
+		 *   Type=42   Len=10       (4 bytes)           (4 bytes)
+		 */
 			switch (optlen) {
-				case 4:
-					printf(" %u", EXTRACT_16BITS(option + 2));
-					break;
-				case 6:
-					printf(" %u", EXTRACT_32BITS(option + 2));
-					break;
-				default:
-					break;
+			case 6:
+				ND_PRINT(" %u", GET_BE_U_4(option + 2));
+				break;
+			case 8:
+				ND_PRINT(" %u", GET_BE_U_4(option + 2));
+				ND_PRINT(" (elapsed time %u)",
+					 GET_BE_U_2(option + 6));
+				break;
+			case 10:
+				ND_PRINT(" %u", GET_BE_U_4(option + 2));
+				ND_PRINT(" (elapsed time %u)",
+					 GET_BE_U_4(option + 6));
+				break;
+			default:
+				ND_PRINT(" [optlen != 6 or 8 or 10]");
+				break;
+			}
+			break;
+		case 43:
+			if (optlen == 6)
+				ND_PRINT(" %u", GET_BE_U_4(option + 2));
+			else if (optlen == 4)
+				ND_PRINT(" %u", GET_BE_U_2(option + 2));
+			else
+				ND_PRINT(" [optlen != 4 or 6]");
+			break;
+		case 44:
+			if (optlen > 2) {
+				ND_PRINT(" ");
+				for (i = 0; i < optlen - 2; i++)
+					ND_PRINT("%02x",
+						 GET_U_1(option + 2 + i));
 			}
 			break;
 		}
-			
-		printf("unknown_opt %d", *option);
-		break;
 	}
 
 	return optlen;
 trunc:
-	printf("[|dccp]");
+	nd_print_trunc(ndo);
 	return 0;
 }

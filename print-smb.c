@@ -6,26 +6,23 @@
  * or later
  */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
+/* \summary: SMB/CIFS printer */
 
-#ifndef lint
-static const char rcsid[] _U_ =
-     "@(#) $Header: /tcpdump/master/tcpdump/print-smb.c,v 1.47 2007-12-09 00:30:47 guy Exp $";
-#endif
+#include <config.h>
 
-#include <tcpdump-stdinc.h>
+#include "netdissect-stdinc.h"
 
-#include <stdio.h>
 #include <string.h>
 
-#include "interface.h"
+#include "netdissect.h"
 #include "extract.h"
 #include "smb.h"
 
+
 static int request = 0;
 static int unicodestr = 0;
+
+extern const u_char *startbuf;
 
 const u_char *startbuf = NULL;
 
@@ -34,7 +31,7 @@ struct smbdescript {
     const char *req_f2;
     const char *rep_f1;
     const char *rep_f2;
-    void (*fn)(const u_char *, const u_char *, const u_char *, const u_char *);
+    void (*fn)(netdissect_options *, const u_char *, const u_char *, const u_char *, const u_char *);
 };
 
 struct smbdescriptint {
@@ -42,7 +39,7 @@ struct smbdescriptint {
     const char *req_f2;
     const char *rep_f1;
     const char *rep_f2;
-    void (*fn)(const u_char *, const u_char *, int, int);
+    void (*fn)(netdissect_options *, const u_char *, const u_char *, u_int, u_int);
 };
 
 struct smbfns
@@ -65,8 +62,8 @@ struct smbfnsint
 
 #define FLG_CHAIN	(1 << 0)
 
-static struct smbfns *
-smbfind(int id, struct smbfns *list)
+static const struct smbfns *
+smbfind(int id, const struct smbfns *list)
 {
     int sindex;
 
@@ -77,8 +74,8 @@ smbfind(int id, struct smbfns *list)
     return(&list[0]);
 }
 
-static struct smbfnsint *
-smbfindint(int id, struct smbfnsint *list)
+static const struct smbfnsint *
+smbfindint(int id, const struct smbfnsint *list)
 {
     int sindex;
 
@@ -90,65 +87,62 @@ smbfindint(int id, struct smbfnsint *list)
 }
 
 static void
-trans2_findfirst(const u_char *param, const u_char *data, int pcnt, int dcnt)
+trans2_findfirst(netdissect_options *ndo,
+                 const u_char *param, const u_char *data, u_int pcnt, u_int dcnt)
 {
     const char *fmt;
 
     if (request)
-	fmt = "Attribute=[A]\nSearchCount=[d]\nFlags=[w]\nLevel=[dP4]\nFile=[S]\n";
+	fmt = "Attribute=[A]\nSearchCount=[u]\nFlags=[w]\nLevel=[uP4]\nFile=[S]\n";
     else
-	fmt = "Handle=[w]\nCount=[d]\nEOS=[w]\nEoffset=[d]\nLastNameOfs=[w]\n";
+	fmt = "Handle=[w]\nCount=[u]\nEOS=[w]\nEoffset=[u]\nLastNameOfs=[w]\n";
 
-    smb_fdata(param, fmt, param + pcnt, unicodestr);
+    smb_fdata(ndo, param, fmt, param + pcnt, unicodestr);
     if (dcnt) {
-	printf("data:\n");
-	print_data(data, dcnt);
+	ND_PRINT("data:\n");
+	smb_data_print(ndo, data, dcnt);
     }
 }
 
 static void
-trans2_qfsinfo(const u_char *param, const u_char *data, int pcnt, int dcnt)
+trans2_qfsinfo(netdissect_options *ndo,
+               const u_char *param, const u_char *data, u_int pcnt, u_int dcnt)
 {
-    static int level = 0;
+    static u_int level = 0;
     const char *fmt="";
 
     if (request) {
-	TCHECK2(*param, 2);
-	level = EXTRACT_LE_16BITS(param);
-	fmt = "InfoLevel=[d]\n";
-	smb_fdata(param, fmt, param + pcnt, unicodestr);
+	level = GET_LE_U_2(param);
+	fmt = "InfoLevel=[u]\n";
+	smb_fdata(ndo, param, fmt, param + pcnt, unicodestr);
     } else {
 	switch (level) {
 	case 1:
-	    fmt = "idFileSystem=[W]\nSectorUnit=[D]\nUnit=[D]\nAvail=[D]\nSectorSize=[d]\n";
+	    fmt = "idFileSystem=[W]\nSectorUnit=[U]\nUnit=[U]\nAvail=[U]\nSectorSize=[u]\n";
 	    break;
 	case 2:
 	    fmt = "CreationTime=[T2]VolNameLength=[lb]\nVolumeLabel=[c]\n";
 	    break;
 	case 0x105:
-	    fmt = "Capabilities=[W]\nMaxFileLen=[D]\nVolNameLen=[lD]\nVolume=[C]\n";
+	    fmt = "Capabilities=[W]\nMaxFileLen=[U]\nVolNameLen=[lU]\nVolume=[C]\n";
 	    break;
 	default:
 	    fmt = "UnknownLevel\n";
 	    break;
 	}
-	smb_fdata(data, fmt, data + dcnt, unicodestr);
+	smb_fdata(ndo, data, fmt, data + dcnt, unicodestr);
     }
     if (dcnt) {
-	printf("data:\n");
-	print_data(data, dcnt);
+	ND_PRINT("data:\n");
+	smb_data_print(ndo, data, dcnt);
     }
-    return;
-trunc:
-    printf("[|SMB]");
-    return;
 }
 
-struct smbfnsint trans2_fns[] = {
+static const struct smbfnsint trans2_fns[] = {
     { 0, "TRANSACT2_OPEN", 0,
-	{ "Flags2=[w]\nMode=[w]\nSearchAttrib=[A]\nAttrib=[A]\nTime=[T2]\nOFun=[w]\nSize=[D]\nRes=([w, w, w, w, w])\nPath=[S]",
+	{ "Flags2=[w]\nMode=[w]\nSearchAttrib=[A]\nAttrib=[A]\nTime=[T2]\nOFun=[w]\nSize=[U]\nRes=([w, w, w, w, w])\nPath=[S]",
 	  NULL,
-	  "Handle=[d]\nAttrib=[A]\nTime=[T2]\nSize=[D]\nAccess=[w]\nType=[w]\nState=[w]\nAction=[w]\nInode=[W]\nOffErr=[d]\n|EALength=[d]\n",
+	  "Handle=[u]\nAttrib=[A]\nTime=[T2]\nSize=[U]\nAccess=[w]\nType=[w]\nState=[w]\nAction=[w]\nInode=[W]\nOffErr=[u]\n|EALength=[u]\n",
 	  NULL, NULL }},
     { 1, "TRANSACT2_FINDFIRST", 0,
 	{ NULL, NULL, NULL, NULL, trans2_findfirst }},
@@ -170,362 +164,352 @@ struct smbfnsint trans2_fns[] = {
 
 
 static void
-print_trans2(const u_char *words, const u_char *dat, const u_char *buf, const u_char *maxbuf)
+print_trans2(netdissect_options *ndo,
+             const u_char *words, const u_char *dat, const u_char *buf, const u_char *maxbuf)
 {
     u_int bcc;
-    static struct smbfnsint *fn = &trans2_fns[0];
+    static const struct smbfnsint *fn = &trans2_fns[0];
     const u_char *data, *param;
     const u_char *w = words + 1;
     const char *f1 = NULL, *f2 = NULL;
-    int pcnt, dcnt;
+    u_int pcnt, dcnt;
 
-    TCHECK(words[0]);
+    ND_TCHECK_1(words);
     if (request) {
-	TCHECK2(w[14 * 2], 2);
-	pcnt = EXTRACT_LE_16BITS(w + 9 * 2);
-	param = buf + EXTRACT_LE_16BITS(w + 10 * 2);
-	dcnt = EXTRACT_LE_16BITS(w + 11 * 2);
-	data = buf + EXTRACT_LE_16BITS(w + 12 * 2);
-	fn = smbfindint(EXTRACT_LE_16BITS(w + 14 * 2), trans2_fns);
+	ND_TCHECK_2(w + (14 * 2));
+	pcnt = GET_LE_U_2(w + 9 * 2);
+	param = buf + GET_LE_U_2(w + 10 * 2);
+	dcnt = GET_LE_U_2(w + 11 * 2);
+	data = buf + GET_LE_U_2(w + 12 * 2);
+	fn = smbfindint(GET_LE_U_2(w + 14 * 2), trans2_fns);
     } else {
-	if (words[0] == 0) {
-	    printf("%s\n", fn->name);
-	    printf("Trans2Interim\n");
+	if (GET_U_1(words) == 0) {
+	    ND_PRINT("%s\n", fn->name);
+	    ND_PRINT("Trans2Interim\n");
 	    return;
 	}
-	TCHECK2(w[7 * 2], 2);
-	pcnt = EXTRACT_LE_16BITS(w + 3 * 2);
-	param = buf + EXTRACT_LE_16BITS(w + 4 * 2);
-	dcnt = EXTRACT_LE_16BITS(w + 6 * 2);
-	data = buf + EXTRACT_LE_16BITS(w + 7 * 2);
+	ND_TCHECK_2(w + (7 * 2));
+	pcnt = GET_LE_U_2(w + 3 * 2);
+	param = buf + GET_LE_U_2(w + 4 * 2);
+	dcnt = GET_LE_U_2(w + 6 * 2);
+	data = buf + GET_LE_U_2(w + 7 * 2);
     }
 
-    printf("%s param_length=%d data_length=%d\n", fn->name, pcnt, dcnt);
+    ND_PRINT("%s param_length=%u data_length=%u\n", fn->name, pcnt, dcnt);
 
     if (request) {
-	if (words[0] == 8) {
-	    smb_fdata(words + 1,
-		"Trans2Secondary\nTotParam=[d]\nTotData=[d]\nParamCnt=[d]\nParamOff=[d]\nParamDisp=[d]\nDataCnt=[d]\nDataOff=[d]\nDataDisp=[d]\nHandle=[d]\n",
+	if (GET_U_1(words) == 8) {
+	    smb_fdata(ndo, words + 1,
+		"Trans2Secondary\nTotParam=[u]\nTotData=[u]\nParamCnt=[u]\nParamOff=[u]\nParamDisp=[u]\nDataCnt=[u]\nDataOff=[u]\nDataDisp=[u]\nHandle=[u]\n",
 		maxbuf, unicodestr);
 	    return;
 	} else {
-	    smb_fdata(words + 1,
-		"TotParam=[d]\nTotData=[d]\nMaxParam=[d]\nMaxData=[d]\nMaxSetup=[b][P1]\nFlags=[w]\nTimeOut=[D]\nRes1=[w]\nParamCnt=[d]\nParamOff=[d]\nDataCnt=[d]\nDataOff=[d]\nSetupCnt=[b][P1]\n",
+	    smb_fdata(ndo, words + 1,
+		"TotParam=[u]\nTotData=[u]\nMaxParam=[u]\nMaxData=[u]\nMaxSetup=[b][P1]\nFlags=[w]\nTimeOut=[D]\nRes1=[w]\nParamCnt=[u]\nParamOff=[u]\nDataCnt=[u]\nDataOff=[u]\nSetupCnt=[b][P1]\n",
 		words + 1 + 14 * 2, unicodestr);
 	}
 	f1 = fn->descript.req_f1;
 	f2 = fn->descript.req_f2;
     } else {
-	smb_fdata(words + 1,
-	    "TotParam=[d]\nTotData=[d]\nRes1=[w]\nParamCnt=[d]\nParamOff=[d]\nParamDisp[d]\nDataCnt=[d]\nDataOff=[d]\nDataDisp=[d]\nSetupCnt=[b][P1]\n",
+	smb_fdata(ndo, words + 1,
+	    "TotParam=[u]\nTotData=[u]\nRes1=[w]\nParamCnt=[u]\nParamOff=[u]\nParamDisp[u]\nDataCnt=[u]\nDataOff=[u]\nDataDisp=[u]\nSetupCnt=[b][P1]\n",
 	    words + 1 + 10 * 2, unicodestr);
 	f1 = fn->descript.rep_f1;
 	f2 = fn->descript.rep_f2;
     }
 
-    TCHECK2(*dat, 2);
-    bcc = EXTRACT_LE_16BITS(dat);
-    printf("smb_bcc=%u\n", bcc);
+    bcc = GET_LE_U_2(dat);
+    ND_PRINT("smb_bcc=%u\n", bcc);
     if (fn->descript.fn)
-	(*fn->descript.fn)(param, data, pcnt, dcnt);
+	(*fn->descript.fn)(ndo, param, data, pcnt, dcnt);
     else {
-	smb_fdata(param, f1 ? f1 : "Parameters=\n", param + pcnt, unicodestr);
-	smb_fdata(data, f2 ? f2 : "Data=\n", data + dcnt, unicodestr);
+	smb_fdata(ndo, param, f1 ? f1 : "Parameters=\n", param + pcnt, unicodestr);
+	smb_fdata(ndo, data, f2 ? f2 : "Data=\n", data + dcnt, unicodestr);
     }
     return;
 trunc:
-    printf("[|SMB]");
-    return;
+    nd_print_trunc(ndo);
 }
 
-
 static void
-print_browse(const u_char *param, int paramlen, const u_char *data, int datalen)
+print_browse(netdissect_options *ndo,
+             const u_char *param, u_int paramlen, const u_char *data, u_int datalen)
 {
     const u_char *maxbuf = data + datalen;
-    int command;
+    u_int command;
 
-    TCHECK(data[0]);
-    command = data[0];
+    command = GET_U_1(data);
 
-    smb_fdata(param, "BROWSE PACKET\n|Param ", param+paramlen, unicodestr);
+    smb_fdata(ndo, param, "BROWSE PACKET\n|Param ", param+paramlen, unicodestr);
 
     switch (command) {
     case 0xF:
-	data = smb_fdata(data,
-	    "BROWSE PACKET:\nType=[B] (LocalMasterAnnouncement)\nUpdateCount=[w]\nRes1=[B]\nAnnounceInterval=[d]\nName=[n2]\nMajorVersion=[B]\nMinorVersion=[B]\nServerType=[W]\nElectionVersion=[w]\nBrowserConstant=[w]\n",
+	data = smb_fdata(ndo, data,
+	    "BROWSE PACKET:\nType=[B] (LocalMasterAnnouncement)\nUpdateCount=[w]\nRes1=[B]\nAnnounceInterval=[u]\nName=[n2]\nMajorVersion=[B]\nMinorVersion=[B]\nServerType=[W]\nElectionVersion=[w]\nBrowserConstant=[w]\n",
 	    maxbuf, unicodestr);
 	break;
 
     case 0x1:
-	data = smb_fdata(data,
-	    "BROWSE PACKET:\nType=[B] (HostAnnouncement)\nUpdateCount=[w]\nRes1=[B]\nAnnounceInterval=[d]\nName=[n2]\nMajorVersion=[B]\nMinorVersion=[B]\nServerType=[W]\nElectionVersion=[w]\nBrowserConstant=[w]\n",
+	data = smb_fdata(ndo, data,
+	    "BROWSE PACKET:\nType=[B] (HostAnnouncement)\nUpdateCount=[w]\nRes1=[B]\nAnnounceInterval=[u]\nName=[n2]\nMajorVersion=[B]\nMinorVersion=[B]\nServerType=[W]\nElectionVersion=[w]\nBrowserConstant=[w]\n",
 	    maxbuf, unicodestr);
 	break;
 
     case 0x2:
-	data = smb_fdata(data,
+	data = smb_fdata(ndo, data,
 	    "BROWSE PACKET:\nType=[B] (AnnouncementRequest)\nFlags=[B]\nReplySystemName=[S]\n",
 	    maxbuf, unicodestr);
 	break;
 
     case 0xc:
-	data = smb_fdata(data,
-	    "BROWSE PACKET:\nType=[B] (WorkgroupAnnouncement)\nUpdateCount=[w]\nRes1=[B]\nAnnounceInterval=[d]\nName=[n2]\nMajorVersion=[B]\nMinorVersion=[B]\nServerType=[W]\nCommentPointer=[W]\nServerName=[S]\n",
+	data = smb_fdata(ndo, data,
+	    "BROWSE PACKET:\nType=[B] (WorkgroupAnnouncement)\nUpdateCount=[w]\nRes1=[B]\nAnnounceInterval=[u]\nName=[n2]\nMajorVersion=[B]\nMinorVersion=[B]\nServerType=[W]\nCommentPointer=[W]\nServerName=[S]\n",
 	    maxbuf, unicodestr);
 	break;
 
     case 0x8:
-	data = smb_fdata(data,
+	data = smb_fdata(ndo, data,
 	    "BROWSE PACKET:\nType=[B] (ElectionFrame)\nElectionVersion=[B]\nOSSummary=[W]\nUptime=[(W, W)]\nServerName=[S]\n",
 	    maxbuf, unicodestr);
 	break;
 
     case 0xb:
-	data = smb_fdata(data,
+	data = smb_fdata(ndo, data,
 	    "BROWSE PACKET:\nType=[B] (BecomeBackupBrowser)\nName=[S]\n",
 	    maxbuf, unicodestr);
 	break;
 
     case 0x9:
-	data = smb_fdata(data,
+	data = smb_fdata(ndo, data,
 	    "BROWSE PACKET:\nType=[B] (GetBackupList)\nListCount?=[B]\nToken=[W]\n",
 	    maxbuf, unicodestr);
 	break;
 
     case 0xa:
-	data = smb_fdata(data,
+	data = smb_fdata(ndo, data,
 	    "BROWSE PACKET:\nType=[B] (BackupListResponse)\nServerCount?=[B]\nToken=[W]\n*Name=[S]\n",
 	    maxbuf, unicodestr);
 	break;
 
     case 0xd:
-	data = smb_fdata(data,
+	data = smb_fdata(ndo, data,
 	    "BROWSE PACKET:\nType=[B] (MasterAnnouncement)\nMasterName=[S]\n",
 	    maxbuf, unicodestr);
 	break;
 
     case 0xe:
-	data = smb_fdata(data,
+	data = smb_fdata(ndo, data,
 	    "BROWSE PACKET:\nType=[B] (ResetBrowser)\nOptions=[B]\n", maxbuf, unicodestr);
 	break;
 
     default:
-	data = smb_fdata(data, "Unknown Browser Frame ", maxbuf, unicodestr);
+	data = smb_fdata(ndo, data, "Unknown Browser Frame ", maxbuf, unicodestr);
 	break;
     }
-    return;
-trunc:
-    printf("[|SMB]");
-    return;
 }
 
 
 static void
-print_ipc(const u_char *param, int paramlen, const u_char *data, int datalen)
+print_ipc(netdissect_options *ndo,
+          const u_char *param, u_int paramlen, const u_char *data, u_int datalen)
 {
     if (paramlen)
-	smb_fdata(param, "Command=[w]\nStr1=[S]\nStr2=[S]\n", param + paramlen,
+	smb_fdata(ndo, param, "Command=[w]\nStr1=[S]\nStr2=[S]\n", param + paramlen,
 	    unicodestr);
     if (datalen)
-	smb_fdata(data, "IPC ", data + datalen, unicodestr);
+	smb_fdata(ndo, data, "IPC ", data + datalen, unicodestr);
 }
 
 
 static void
-print_trans(const u_char *words, const u_char *data1, const u_char *buf, const u_char *maxbuf)
+print_trans(netdissect_options *ndo,
+            const u_char *words, const u_char *data1, const u_char *buf, const u_char *maxbuf)
 {
     u_int bcc;
     const char *f1, *f2, *f3, *f4;
     const u_char *data, *param;
     const u_char *w = words + 1;
-    int datalen, paramlen;
+    u_int datalen, paramlen;
 
     if (request) {
-	TCHECK2(w[12 * 2], 2);
-	paramlen = EXTRACT_LE_16BITS(w + 9 * 2);
-	param = buf + EXTRACT_LE_16BITS(w + 10 * 2);
-	datalen = EXTRACT_LE_16BITS(w + 11 * 2);
-	data = buf + EXTRACT_LE_16BITS(w + 12 * 2);
-	f1 = "TotParamCnt=[d] \nTotDataCnt=[d] \nMaxParmCnt=[d] \nMaxDataCnt=[d]\nMaxSCnt=[d] \nTransFlags=[w] \nRes1=[w] \nRes2=[w] \nRes3=[w]\nParamCnt=[d] \nParamOff=[d] \nDataCnt=[d] \nDataOff=[d] \nSUCnt=[d]\n";
+	ND_TCHECK_2(w + (12 * 2));
+	paramlen = GET_LE_U_2(w + 9 * 2);
+	param = buf + GET_LE_U_2(w + 10 * 2);
+	datalen = GET_LE_U_2(w + 11 * 2);
+	data = buf + GET_LE_U_2(w + 12 * 2);
+	f1 = "TotParamCnt=[u]\nTotDataCnt=[u]\nMaxParmCnt=[u]\nMaxDataCnt=[u]\nMaxSCnt=[u]\nTransFlags=[w]\nRes1=[w]\nRes2=[w]\nRes3=[w]\nParamCnt=[u]\nParamOff=[u]\nDataCnt=[u]\nDataOff=[u]\nSUCnt=[u]\n";
 	f2 = "|Name=[S]\n";
 	f3 = "|Param ";
 	f4 = "|Data ";
     } else {
-	TCHECK2(w[7 * 2], 2);
-	paramlen = EXTRACT_LE_16BITS(w + 3 * 2);
-	param = buf + EXTRACT_LE_16BITS(w + 4 * 2);
-	datalen = EXTRACT_LE_16BITS(w + 6 * 2);
-	data = buf + EXTRACT_LE_16BITS(w + 7 * 2);
-	f1 = "TotParamCnt=[d] \nTotDataCnt=[d] \nRes1=[d]\nParamCnt=[d] \nParamOff=[d] \nRes2=[d] \nDataCnt=[d] \nDataOff=[d] \nRes3=[d]\nLsetup=[d]\n";
+	ND_TCHECK_2(w + (7 * 2));
+	paramlen = GET_LE_U_2(w + 3 * 2);
+	param = buf + GET_LE_U_2(w + 4 * 2);
+	datalen = GET_LE_U_2(w + 6 * 2);
+	data = buf + GET_LE_U_2(w + 7 * 2);
+	f1 = "TotParamCnt=[u]\nTotDataCnt=[u]\nRes1=[u]\nParamCnt=[u]\nParamOff=[u]\nRes2=[u]\nDataCnt=[u]\nDataOff=[u]\nRes3=[u]\nLsetup=[u]\n";
 	f2 = "|Unknown ";
 	f3 = "|Param ";
 	f4 = "|Data ";
     }
 
-    smb_fdata(words + 1, f1, SMBMIN(words + 1 + 2 * words[0], maxbuf),
-        unicodestr);
+    smb_fdata(ndo, words + 1, f1,
+              ND_MIN(words + 1 + 2 * GET_U_1(words), maxbuf),
+              unicodestr);
 
-    TCHECK2(*data1, 2);
-    bcc = EXTRACT_LE_16BITS(data1);
-    printf("smb_bcc=%u\n", bcc);
+    bcc = GET_LE_U_2(data1);
+    ND_PRINT("smb_bcc=%u\n", bcc);
     if (bcc > 0) {
-	smb_fdata(data1 + 2, f2, maxbuf - (paramlen + datalen), unicodestr);
+	smb_fdata(ndo, data1 + 2, f2, maxbuf - (paramlen + datalen), unicodestr);
 
-	if (strcmp((const char *)(data1 + 2), "\\MAILSLOT\\BROWSE") == 0) {
-	    print_browse(param, paramlen, data, datalen);
+#define MAILSLOT_BROWSE_STR "\\MAILSLOT\\BROWSE"
+	ND_TCHECK_LEN(data1 + 2, strlen(MAILSLOT_BROWSE_STR) + 1);
+	if (strcmp((const char *)(data1 + 2), MAILSLOT_BROWSE_STR) == 0) {
+	    print_browse(ndo, param, paramlen, data, datalen);
 	    return;
 	}
+#undef MAILSLOT_BROWSE_STR
 
-	if (strcmp((const char *)(data1 + 2), "\\PIPE\\LANMAN") == 0) {
-	    print_ipc(param, paramlen, data, datalen);
+#define PIPE_LANMAN_STR "\\PIPE\\LANMAN"
+	ND_TCHECK_LEN(data1 + 2, strlen(PIPE_LANMAN_STR) + 1);
+	if (strcmp((const char *)(data1 + 2), PIPE_LANMAN_STR) == 0) {
+	    print_ipc(ndo, param, paramlen, data, datalen);
 	    return;
 	}
+#undef PIPE_LANMAN_STR
 
 	if (paramlen)
-	    smb_fdata(param, f3, SMBMIN(param + paramlen, maxbuf), unicodestr);
+	    smb_fdata(ndo, param, f3, ND_MIN(param + paramlen, maxbuf), unicodestr);
 	if (datalen)
-	    smb_fdata(data, f4, SMBMIN(data + datalen, maxbuf), unicodestr);
+	    smb_fdata(ndo, data, f4, ND_MIN(data + datalen, maxbuf), unicodestr);
     }
     return;
 trunc:
-    printf("[|SMB]");
-    return;
+    nd_print_trunc(ndo);
 }
 
 
 static void
-print_negprot(const u_char *words, const u_char *data, const u_char *buf _U_, const u_char *maxbuf)
+print_negprot(netdissect_options *ndo,
+              const u_char *words, const u_char *data, const u_char *buf _U_, const u_char *maxbuf)
 {
     u_int wct, bcc;
     const char *f1 = NULL, *f2 = NULL;
 
-    TCHECK(words[0]);
-    wct = words[0];
+    wct = GET_U_1(words);
     if (request)
 	f2 = "*|Dialect=[Y]\n";
     else {
 	if (wct == 1)
-	    f1 = "Core Protocol\nDialectIndex=[d]";
+	    f1 = "Core Protocol\nDialectIndex=[u]";
 	else if (wct == 17)
-	    f1 = "NT1 Protocol\nDialectIndex=[d]\nSecMode=[B]\nMaxMux=[d]\nNumVcs=[d]\nMaxBuffer=[D]\nRawSize=[D]\nSessionKey=[W]\nCapabilities=[W]\nServerTime=[T3]TimeZone=[d]\nCryptKey=";
+	    f1 = "NT1 Protocol\nDialectIndex=[u]\nSecMode=[B]\nMaxMux=[u]\nNumVcs=[u]\nMaxBuffer=[U]\nRawSize=[U]\nSessionKey=[W]\nCapabilities=[W]\nServerTime=[T3]TimeZone=[u]\nCryptKey=";
 	else if (wct == 13)
-	    f1 = "Coreplus/Lanman1/Lanman2 Protocol\nDialectIndex=[d]\nSecMode=[w]\nMaxXMit=[d]\nMaxMux=[d]\nMaxVcs=[d]\nBlkMode=[w]\nSessionKey=[W]\nServerTime=[T1]TimeZone=[d]\nRes=[W]\nCryptKey=";
+	    f1 = "Coreplus/Lanman1/Lanman2 Protocol\nDialectIndex=[u]\nSecMode=[w]\nMaxXMit=[u]\nMaxMux=[u]\nMaxVcs=[u]\nBlkMode=[w]\nSessionKey=[W]\nServerTime=[T1]TimeZone=[u]\nRes=[W]\nCryptKey=";
     }
 
     if (f1)
-	smb_fdata(words + 1, f1, SMBMIN(words + 1 + wct * 2, maxbuf),
+	smb_fdata(ndo, words + 1, f1, ND_MIN(words + 1 + wct * 2, maxbuf),
 	    unicodestr);
     else
-	print_data(words + 1, SMBMIN(wct * 2, PTR_DIFF(maxbuf, words + 1)));
+	smb_data_print(ndo, words + 1,
+                       ND_MIN(wct * 2, ND_BYTES_BETWEEN(words + 1, maxbuf)));
 
-    TCHECK2(*data, 2);
-    bcc = EXTRACT_LE_16BITS(data);
-    printf("smb_bcc=%u\n", bcc);
+    bcc = GET_LE_U_2(data);
+    ND_PRINT("smb_bcc=%u\n", bcc);
     if (bcc > 0) {
 	if (f2)
-	    smb_fdata(data + 2, f2, SMBMIN(data + 2 + EXTRACT_LE_16BITS(data),
-		maxbuf), unicodestr);
+	    smb_fdata(ndo, data + 2, f2, ND_MIN(data + 2 + GET_LE_U_2(data),
+                                             maxbuf), unicodestr);
 	else
-	    print_data(data + 2, SMBMIN(EXTRACT_LE_16BITS(data), PTR_DIFF(maxbuf, data + 2)));
+	    smb_data_print(ndo, data + 2,
+                           ND_MIN(GET_LE_U_2(data), ND_BYTES_BETWEEN(data + 2, maxbuf)));
     }
-    return;
-trunc:
-    printf("[|SMB]");
-    return;
 }
 
 static void
-print_sesssetup(const u_char *words, const u_char *data, const u_char *buf _U_, const u_char *maxbuf)
+print_sesssetup(netdissect_options *ndo,
+                const u_char *words, const u_char *data, const u_char *buf _U_, const u_char *maxbuf)
 {
     u_int wct, bcc;
     const char *f1 = NULL, *f2 = NULL;
 
-    TCHECK(words[0]);
-    wct = words[0];
+    wct = GET_U_1(words);
     if (request) {
 	if (wct == 10)
-	    f1 = "Com2=[w]\nOff2=[d]\nBufSize=[d]\nMpxMax=[d]\nVcNum=[d]\nSessionKey=[W]\nPassLen=[d]\nCryptLen=[d]\nCryptOff=[d]\nPass&Name=\n";
+	    f1 = "Com2=[w]\nOff2=[u]\nBufSize=[u]\nMpxMax=[u]\nVcNum=[u]\nSessionKey=[W]\nPassLen=[u]\nCryptLen=[u]\nCryptOff=[u]\nPass&Name=\n";
 	else
-	    f1 = "Com2=[B]\nRes1=[B]\nOff2=[d]\nMaxBuffer=[d]\nMaxMpx=[d]\nVcNumber=[d]\nSessionKey=[W]\nCaseInsensitivePasswordLength=[d]\nCaseSensitivePasswordLength=[d]\nRes=[W]\nCapabilities=[W]\nPass1&Pass2&Account&Domain&OS&LanMan=\n";
+	    f1 = "Com2=[B]\nRes1=[B]\nOff2=[u]\nMaxBuffer=[u]\nMaxMpx=[u]\nVcNumber=[u]\nSessionKey=[W]\nCaseInsensitivePasswordLength=[u]\nCaseSensitivePasswordLength=[u]\nRes=[W]\nCapabilities=[W]\nPass1&Pass2&Account&Domain&OS&LanMan=\n";
     } else {
 	if (wct == 3) {
-	    f1 = "Com2=[w]\nOff2=[d]\nAction=[w]\n";
+	    f1 = "Com2=[w]\nOff2=[u]\nAction=[w]\n";
 	} else if (wct == 13) {
-	    f1 = "Com2=[B]\nRes=[B]\nOff2=[d]\nAction=[w]\n";
+	    f1 = "Com2=[B]\nRes=[B]\nOff2=[u]\nAction=[w]\n";
 	    f2 = "NativeOS=[S]\nNativeLanMan=[S]\nPrimaryDomain=[S]\n";
 	}
     }
 
     if (f1)
-	smb_fdata(words + 1, f1, SMBMIN(words + 1 + wct * 2, maxbuf),
+	smb_fdata(ndo, words + 1, f1, ND_MIN(words + 1 + wct * 2, maxbuf),
 	    unicodestr);
     else
-	print_data(words + 1, SMBMIN(wct * 2, PTR_DIFF(maxbuf, words + 1)));
+	smb_data_print(ndo, words + 1,
+                       ND_MIN(wct * 2, ND_BYTES_BETWEEN(words + 1, maxbuf)));
 
-    TCHECK2(*data, 2);
-    bcc = EXTRACT_LE_16BITS(data);
-    printf("smb_bcc=%u\n", bcc);
+    bcc = GET_LE_U_2(data);
+    ND_PRINT("smb_bcc=%u\n", bcc);
     if (bcc > 0) {
 	if (f2)
-	    smb_fdata(data + 2, f2, SMBMIN(data + 2 + EXTRACT_LE_16BITS(data),
-		maxbuf), unicodestr);
+	    smb_fdata(ndo, data + 2, f2, ND_MIN(data + 2 + GET_LE_U_2(data),
+                                             maxbuf), unicodestr);
 	else
-	    print_data(data + 2, SMBMIN(EXTRACT_LE_16BITS(data), PTR_DIFF(maxbuf, data + 2)));
+	    smb_data_print(ndo, data + 2,
+                           ND_MIN(GET_LE_U_2(data), ND_BYTES_BETWEEN(data + 2, maxbuf)));
     }
-    return;
-trunc:
-    printf("[|SMB]");
-    return;
 }
 
 static void
-print_lockingandx(const u_char *words, const u_char *data, const u_char *buf _U_, const u_char *maxbuf)
+print_lockingandx(netdissect_options *ndo,
+                  const u_char *words, const u_char *data, const u_char *buf _U_, const u_char *maxbuf)
 {
     u_int wct, bcc;
     const u_char *maxwords;
     const char *f1 = NULL, *f2 = NULL;
 
-    TCHECK(words[0]);
-    wct = words[0];
+    wct = GET_U_1(words);
     if (request) {
-	f1 = "Com2=[w]\nOff2=[d]\nHandle=[d]\nLockType=[w]\nTimeOut=[D]\nUnlockCount=[d]\nLockCount=[d]\n";
-	TCHECK(words[7]);
-	if (words[7] & 0x10)
-	    f2 = "*Process=[d]\n[P2]Offset=[M]\nLength=[M]\n";
+	f1 = "Com2=[w]\nOff2=[u]\nHandle=[u]\nLockType=[w]\nTimeOut=[D]\nUnlockCount=[u]\nLockCount=[u]\n";
+	if (GET_U_1(words + 7) & 0x10)
+	    f2 = "*Process=[u]\n[P2]Offset=[M]\nLength=[M]\n";
 	else
-	    f2 = "*Process=[d]\nOffset=[D]\nLength=[D]\n";
+	    f2 = "*Process=[u]\nOffset=[D]\nLength=[U]\n";
     } else {
-	f1 = "Com2=[w]\nOff2=[d]\n";
+	f1 = "Com2=[w]\nOff2=[u]\n";
     }
 
-    maxwords = SMBMIN(words + 1 + wct * 2, maxbuf);
+    maxwords = ND_MIN(words + 1 + wct * 2, maxbuf);
     if (wct)
-	smb_fdata(words + 1, f1, maxwords, unicodestr);
+	smb_fdata(ndo, words + 1, f1, maxwords, unicodestr);
 
-    TCHECK2(*data, 2);
-    bcc = EXTRACT_LE_16BITS(data);
-    printf("smb_bcc=%u\n", bcc);
+    bcc = GET_LE_U_2(data);
+    ND_PRINT("smb_bcc=%u\n", bcc);
     if (bcc > 0) {
 	if (f2)
-	    smb_fdata(data + 2, f2, SMBMIN(data + 2 + EXTRACT_LE_16BITS(data),
-		maxbuf), unicodestr);
+	    smb_fdata(ndo, data + 2, f2, ND_MIN(data + 2 + GET_LE_U_2(data),
+                                             maxbuf), unicodestr);
 	else
-	    print_data(data + 2, SMBMIN(EXTRACT_LE_16BITS(data), PTR_DIFF(maxbuf, data + 2)));
+	    smb_data_print(ndo, data + 2,
+                           ND_MIN(GET_LE_U_2(data), ND_BYTES_BETWEEN(data + 2, maxbuf)));
     }
-    return;
-trunc:
-    printf("[|SMB]");
-    return;
 }
 
 
-static struct smbfns smb_fns[] = {
+static const struct smbfns smb_fns[] = {
     { -1, "SMBunknown", 0, DEFDESCRIPT },
 
     { SMBtcon, "SMBtcon", 0,
 	{ NULL, "Path=[Z]\nPassword=[Z]\nDevice=[Z]\n",
-	  "MaxXmit=[d]\nTreeId=[d]\n", NULL,
+	  "MaxXmit=[u]\nTreeId=[u]\n", NULL,
 	  NULL } },
 
     { SMBtdis, "SMBtdis", 0, DEFDESCRIPT },
@@ -533,15 +517,15 @@ static struct smbfns smb_fns[] = {
     { SMBioctl, "SMBioctl", 0, DEFDESCRIPT },
 
     { SMBecho, "SMBecho", 0,
-	{ "ReverbCount=[d]\n", NULL,
-	  "SequenceNum=[d]\n", NULL,
+	{ "ReverbCount=[u]\n", NULL,
+	  "SequenceNum=[u]\n", NULL,
 	  NULL } },
 
     { SMBulogoffX, "SMBulogoffX", FLG_CHAIN, DEFDESCRIPT },
 
     { SMBgetatr, "SMBgetatr", 0,
 	{ NULL, "Path=[Z]\n",
-	  "Attribute=[A]\nTime=[T2]Size=[D]\nRes=([w,w,w,w,w])\n", NULL,
+	  "Attribute=[A]\nTime=[T2]Size=[U]\nRes=([w,w,w,w,w])\n", NULL,
 	  NULL } },
 
     { SMBsetatr, "SMBsetatr", 0,
@@ -552,36 +536,36 @@ static struct smbfns smb_fns[] = {
        { NULL, "Path=[Z]\n", NULL, NULL, NULL } },
 
     { SMBsearch, "SMBsearch", 0,
-	{ "Count=[d]\nAttrib=[A]\n",
-	  "Path=[Z]\nBlkType=[B]\nBlkLen=[d]\n|Res1=[B]\nMask=[s11]\nSrv1=[B]\nDirIndex=[d]\nSrv2=[w]\nRes2=[W]\n",
-	  "Count=[d]\n",
-	  "BlkType=[B]\nBlkLen=[d]\n*\nRes1=[B]\nMask=[s11]\nSrv1=[B]\nDirIndex=[d]\nSrv2=[w]\nRes2=[W]\nAttrib=[a]\nTime=[T1]Size=[D]\nName=[s13]\n",
+	{ "Count=[u]\nAttrib=[A]\n",
+	  "Path=[Z]\nBlkType=[B]\nBlkLen=[u]\n|Res1=[B]\nMask=[s11]\nSrv1=[B]\nDirIndex=[u]\nSrv2=[w]\nRes2=[W]\n",
+	  "Count=[u]\n",
+	  "BlkType=[B]\nBlkLen=[u]\n*\nRes1=[B]\nMask=[s11]\nSrv1=[B]\nDirIndex=[u]\nSrv2=[w]\nRes2=[W]\nAttrib=[a]\nTime=[T1]Size=[U]\nName=[s13]\n",
 	  NULL } },
 
     { SMBopen, "SMBopen", 0,
 	{ "Mode=[w]\nAttribute=[A]\n", "Path=[Z]\n",
-	  "Handle=[d]\nOAttrib=[A]\nTime=[T2]Size=[D]\nAccess=[w]\n",
+	  "Handle=[u]\nOAttrib=[A]\nTime=[T2]Size=[U]\nAccess=[w]\n",
 	  NULL, NULL } },
 
     { SMBcreate, "SMBcreate", 0,
-	{ "Attrib=[A]\nTime=[T2]", "Path=[Z]\n", "Handle=[d]\n", NULL, NULL } },
+	{ "Attrib=[A]\nTime=[T2]", "Path=[Z]\n", "Handle=[u]\n", NULL, NULL } },
 
     { SMBmknew, "SMBmknew", 0,
-	{ "Attrib=[A]\nTime=[T2]", "Path=[Z]\n", "Handle=[d]\n", NULL, NULL } },
+	{ "Attrib=[A]\nTime=[T2]", "Path=[Z]\n", "Handle=[u]\n", NULL, NULL } },
 
     { SMBunlink, "SMBunlink", 0,
 	{ "Attrib=[A]\n", "Path=[Z]\n", NULL, NULL, NULL } },
 
     { SMBread, "SMBread", 0,
-	{ "Handle=[d]\nByteCount=[d]\nOffset=[D]\nCountLeft=[d]\n", NULL,
-	  "Count=[d]\nRes=([w,w,w,w])\n", NULL, NULL } },
+	{ "Handle=[u]\nByteCount=[u]\nOffset=[D]\nCountLeft=[u]\n", NULL,
+	  "Count=[u]\nRes=([w,w,w,w])\n", NULL, NULL } },
 
     { SMBwrite, "SMBwrite", 0,
-	{ "Handle=[d]\nByteCount=[d]\nOffset=[D]\nCountLeft=[d]\n", NULL,
-	  "Count=[d]\n", NULL, NULL } },
+	{ "Handle=[u]\nByteCount=[u]\nOffset=[D]\nCountLeft=[u]\n", NULL,
+	  "Count=[u]\n", NULL, NULL } },
 
     { SMBclose, "SMBclose", 0,
-	{ "Handle=[d]\nTime=[T2]", NULL, NULL, NULL, NULL } },
+	{ "Handle=[u]\nTime=[T2]", NULL, NULL, NULL, NULL } },
 
     { SMBmkdir, "SMBmkdir", 0,
 	{ NULL, "Path=[Z]\n", NULL, NULL, NULL } },
@@ -591,7 +575,7 @@ static struct smbfns smb_fns[] = {
 
     { SMBdskattr, "SMBdskattr", 0,
 	{ NULL, NULL,
-	  "TotalUnits=[d]\nBlocksPerUnit=[d]\nBlockSize=[d]\nFreeUnits=[d]\nMedia=[w]\n",
+	  "TotalUnits=[u]\nBlocksPerUnit=[u]\nBlockSize=[u]\nFreeUnits=[u]\nMedia=[w]\n",
 	  NULL, NULL } },
 
     { SMBmv, "SMBmv", 0,
@@ -604,147 +588,147 @@ static struct smbfns smb_fns[] = {
     { pSETDIR, "SMBsetdir", 0, { NULL, "Path=[Z]\n", NULL, NULL, NULL } },
 
     { SMBlseek, "SMBlseek", 0,
-	{ "Handle=[d]\nMode=[w]\nOffset=[D]\n", "Offset=[D]\n", NULL, NULL, NULL } },
+	{ "Handle=[u]\nMode=[w]\nOffset=[D]\n", "Offset=[D]\n", NULL, NULL, NULL } },
 
-    { SMBflush, "SMBflush", 0, { "Handle=[d]\n", NULL, NULL, NULL, NULL } },
+    { SMBflush, "SMBflush", 0, { "Handle=[u]\n", NULL, NULL, NULL, NULL } },
 
     { SMBsplopen, "SMBsplopen", 0,
-	{ "SetupLen=[d]\nMode=[w]\n", "Ident=[Z]\n", "Handle=[d]\n",
+	{ "SetupLen=[u]\nMode=[w]\n", "Ident=[Z]\n", "Handle=[u]\n",
 	  NULL, NULL } },
 
     { SMBsplclose, "SMBsplclose", 0,
-	{ "Handle=[d]\n", NULL, NULL, NULL, NULL } },
+	{ "Handle=[u]\n", NULL, NULL, NULL, NULL } },
 
     { SMBsplretq, "SMBsplretq", 0,
-	{ "MaxCount=[d]\nStartIndex=[d]\n", NULL,
-	  "Count=[d]\nIndex=[d]\n",
-	  "*Time=[T2]Status=[B]\nJobID=[d]\nSize=[D]\nRes=[B]Name=[s16]\n",
+	{ "MaxCount=[u]\nStartIndex=[u]\n", NULL,
+	  "Count=[u]\nIndex=[u]\n",
+	  "*Time=[T2]Status=[B]\nJobID=[u]\nSize=[U]\nRes=[B]Name=[s16]\n",
 	  NULL } },
 
     { SMBsplwr, "SMBsplwr", 0,
-	{ "Handle=[d]\n", NULL, NULL, NULL, NULL } },
+	{ "Handle=[u]\n", NULL, NULL, NULL, NULL } },
 
     { SMBlock, "SMBlock", 0,
-	{ "Handle=[d]\nCount=[D]\nOffset=[D]\n", NULL, NULL, NULL, NULL } },
+	{ "Handle=[u]\nCount=[U]\nOffset=[D]\n", NULL, NULL, NULL, NULL } },
 
     { SMBunlock, "SMBunlock", 0,
-	{ "Handle=[d]\nCount=[D]\nOffset=[D]\n", NULL, NULL, NULL, NULL } },
+	{ "Handle=[u]\nCount=[U]\nOffset=[D]\n", NULL, NULL, NULL, NULL } },
 
     /* CORE+ PROTOCOL FOLLOWS */
 
     { SMBreadbraw, "SMBreadbraw", 0,
-	{ "Handle=[d]\nOffset=[D]\nMaxCount=[d]\nMinCount=[d]\nTimeOut=[D]\nRes=[d]\n",
+	{ "Handle=[u]\nOffset=[D]\nMaxCount=[u]\nMinCount=[u]\nTimeOut=[D]\nRes=[u]\n",
 	  NULL, NULL, NULL, NULL } },
 
     { SMBwritebraw, "SMBwritebraw", 0,
-	{ "Handle=[d]\nTotalCount=[d]\nRes=[w]\nOffset=[D]\nTimeOut=[D]\nWMode=[w]\nRes2=[W]\n|DataSize=[d]\nDataOff=[d]\n",
+	{ "Handle=[u]\nTotalCount=[u]\nRes=[w]\nOffset=[D]\nTimeOut=[D]\nWMode=[w]\nRes2=[W]\n|DataSize=[u]\nDataOff=[u]\n",
 	  NULL, "WriteRawAck", NULL, NULL } },
 
     { SMBwritec, "SMBwritec", 0,
-	{ NULL, NULL, "Count=[d]\n", NULL, NULL } },
+	{ NULL, NULL, "Count=[u]\n", NULL, NULL } },
 
     { SMBwriteclose, "SMBwriteclose", 0,
-	{ "Handle=[d]\nCount=[d]\nOffset=[D]\nTime=[T2]Res=([w,w,w,w,w,w])",
-	  NULL, "Count=[d]\n", NULL, NULL } },
+	{ "Handle=[u]\nCount=[u]\nOffset=[D]\nTime=[T2]Res=([w,w,w,w,w,w])",
+	  NULL, "Count=[u]\n", NULL, NULL } },
 
     { SMBlockread, "SMBlockread", 0,
-	{ "Handle=[d]\nByteCount=[d]\nOffset=[D]\nCountLeft=[d]\n", NULL,
-	  "Count=[d]\nRes=([w,w,w,w])\n", NULL, NULL } },
+	{ "Handle=[u]\nByteCount=[u]\nOffset=[D]\nCountLeft=[u]\n", NULL,
+	  "Count=[u]\nRes=([w,w,w,w])\n", NULL, NULL } },
 
     { SMBwriteunlock, "SMBwriteunlock", 0,
-	{ "Handle=[d]\nByteCount=[d]\nOffset=[D]\nCountLeft=[d]\n", NULL,
-	  "Count=[d]\n", NULL, NULL } },
+	{ "Handle=[u]\nByteCount=[u]\nOffset=[D]\nCountLeft=[u]\n", NULL,
+	  "Count=[u]\n", NULL, NULL } },
 
     { SMBreadBmpx, "SMBreadBmpx", 0,
-	{ "Handle=[d]\nOffset=[D]\nMaxCount=[d]\nMinCount=[d]\nTimeOut=[D]\nRes=[w]\n",
+	{ "Handle=[u]\nOffset=[D]\nMaxCount=[u]\nMinCount=[u]\nTimeOut=[D]\nRes=[w]\n",
 	  NULL,
-	  "Offset=[D]\nTotCount=[d]\nRemaining=[d]\nRes=([w,w])\nDataSize=[d]\nDataOff=[d]\n",
+	  "Offset=[D]\nTotCount=[u]\nRemaining=[u]\nRes=([w,w])\nDataSize=[u]\nDataOff=[u]\n",
 	  NULL, NULL } },
 
     { SMBwriteBmpx, "SMBwriteBmpx", 0,
-	{ "Handle=[d]\nTotCount=[d]\nRes=[w]\nOffset=[D]\nTimeOut=[D]\nWMode=[w]\nRes2=[W]\nDataSize=[d]\nDataOff=[d]\n", NULL,
-	  "Remaining=[d]\n", NULL, NULL } },
+	{ "Handle=[u]\nTotCount=[u]\nRes=[w]\nOffset=[D]\nTimeOut=[D]\nWMode=[w]\nRes2=[W]\nDataSize=[u]\nDataOff=[u]\n", NULL,
+	  "Remaining=[u]\n", NULL, NULL } },
 
     { SMBwriteBs, "SMBwriteBs", 0,
-	{ "Handle=[d]\nTotCount=[d]\nOffset=[D]\nRes=[W]\nDataSize=[d]\nDataOff=[d]\n",
-	  NULL, "Count=[d]\n", NULL, NULL } },
+	{ "Handle=[u]\nTotCount=[u]\nOffset=[D]\nRes=[W]\nDataSize=[u]\nDataOff=[u]\n",
+	  NULL, "Count=[u]\n", NULL, NULL } },
 
     { SMBsetattrE, "SMBsetattrE", 0,
-	{ "Handle=[d]\nCreationTime=[T2]AccessTime=[T2]ModifyTime=[T2]", NULL,
+	{ "Handle=[u]\nCreationTime=[T2]AccessTime=[T2]ModifyTime=[T2]", NULL,
 	  NULL, NULL, NULL } },
 
     { SMBgetattrE, "SMBgetattrE", 0,
-	{ "Handle=[d]\n", NULL,
-	  "CreationTime=[T2]AccessTime=[T2]ModifyTime=[T2]Size=[D]\nAllocSize=[D]\nAttribute=[A]\n",
+	{ "Handle=[u]\n", NULL,
+	  "CreationTime=[T2]AccessTime=[T2]ModifyTime=[T2]Size=[U]\nAllocSize=[U]\nAttribute=[A]\n",
 	  NULL, NULL } },
 
     { SMBtranss, "SMBtranss", 0, DEFDESCRIPT },
     { SMBioctls, "SMBioctls", 0, DEFDESCRIPT },
 
     { SMBcopy, "SMBcopy", 0,
-	{ "TreeID2=[d]\nOFun=[w]\nFlags=[w]\n", "Path=[S]\nNewPath=[S]\n",
-	  "CopyCount=[d]\n",  "|ErrStr=[S]\n",  NULL } },
+	{ "TreeID2=[u]\nOFun=[w]\nFlags=[w]\n", "Path=[S]\nNewPath=[S]\n",
+	  "CopyCount=[u]\n",  "|ErrStr=[S]\n",  NULL } },
 
     { SMBmove, "SMBmove", 0,
-	{ "TreeID2=[d]\nOFun=[w]\nFlags=[w]\n", "Path=[S]\nNewPath=[S]\n",
-	  "MoveCount=[d]\n",  "|ErrStr=[S]\n",  NULL } },
+	{ "TreeID2=[u]\nOFun=[w]\nFlags=[w]\n", "Path=[S]\nNewPath=[S]\n",
+	  "MoveCount=[u]\n",  "|ErrStr=[S]\n",  NULL } },
 
     { SMBopenX, "SMBopenX", FLG_CHAIN,
-	{ "Com2=[w]\nOff2=[d]\nFlags=[w]\nMode=[w]\nSearchAttrib=[A]\nAttrib=[A]\nTime=[T2]OFun=[w]\nSize=[D]\nTimeOut=[D]\nRes=[W]\n",
+	{ "Com2=[w]\nOff2=[u]\nFlags=[w]\nMode=[w]\nSearchAttrib=[A]\nAttrib=[A]\nTime=[T2]OFun=[w]\nSize=[U]\nTimeOut=[D]\nRes=[W]\n",
 	  "Path=[S]\n",
-	  "Com2=[w]\nOff2=[d]\nHandle=[d]\nAttrib=[A]\nTime=[T2]Size=[D]\nAccess=[w]\nType=[w]\nState=[w]\nAction=[w]\nFileID=[W]\nRes=[w]\n",
+	  "Com2=[w]\nOff2=[u]\nHandle=[u]\nAttrib=[A]\nTime=[T2]Size=[U]\nAccess=[w]\nType=[w]\nState=[w]\nAction=[w]\nFileID=[W]\nRes=[w]\n",
 	  NULL, NULL } },
 
     { SMBreadX, "SMBreadX", FLG_CHAIN,
-	{ "Com2=[w]\nOff2=[d]\nHandle=[d]\nOffset=[D]\nMaxCount=[d]\nMinCount=[d]\nTimeOut=[D]\nCountLeft=[d]\n",
+	{ "Com2=[w]\nOff2=[u]\nHandle=[u]\nOffset=[D]\nMaxCount=[u]\nMinCount=[u]\nTimeOut=[D]\nCountLeft=[u]\n",
 	  NULL,
-	  "Com2=[w]\nOff2=[d]\nRemaining=[d]\nRes=[W]\nDataSize=[d]\nDataOff=[d]\nRes=([w,w,w,w])\n",
+	  "Com2=[w]\nOff2=[u]\nRemaining=[u]\nRes=[W]\nDataSize=[u]\nDataOff=[u]\nRes=([w,w,w,w])\n",
 	  NULL, NULL } },
 
     { SMBwriteX, "SMBwriteX", FLG_CHAIN,
-	{ "Com2=[w]\nOff2=[d]\nHandle=[d]\nOffset=[D]\nTimeOut=[D]\nWMode=[w]\nCountLeft=[d]\nRes=[w]\nDataSize=[d]\nDataOff=[d]\n",
+	{ "Com2=[w]\nOff2=[u]\nHandle=[u]\nOffset=[D]\nTimeOut=[D]\nWMode=[w]\nCountLeft=[u]\nRes=[w]\nDataSize=[u]\nDataOff=[u]\n",
 	  NULL,
-	  "Com2=[w]\nOff2=[d]\nCount=[d]\nRemaining=[d]\nRes=[W]\n",
+	  "Com2=[w]\nOff2=[u]\nCount=[u]\nRemaining=[u]\nRes=[W]\n",
 	  NULL, NULL } },
 
     { SMBffirst, "SMBffirst", 0,
-	{ "Count=[d]\nAttrib=[A]\n",
-	  "Path=[Z]\nBlkType=[B]\nBlkLen=[d]\n|Res1=[B]\nMask=[s11]\nSrv1=[B]\nDirIndex=[d]\nSrv2=[w]\n",
-	  "Count=[d]\n",
-	  "BlkType=[B]\nBlkLen=[d]\n*\nRes1=[B]\nMask=[s11]\nSrv1=[B]\nDirIndex=[d]\nSrv2=[w]\nRes2=[W]\nAttrib=[a]\nTime=[T1]Size=[D]\nName=[s13]\n",
+	{ "Count=[u]\nAttrib=[A]\n",
+	  "Path=[Z]\nBlkType=[B]\nBlkLen=[u]\n|Res1=[B]\nMask=[s11]\nSrv1=[B]\nDirIndex=[u]\nSrv2=[w]\n",
+	  "Count=[u]\n",
+	  "BlkType=[B]\nBlkLen=[u]\n*\nRes1=[B]\nMask=[s11]\nSrv1=[B]\nDirIndex=[u]\nSrv2=[w]\nRes2=[W]\nAttrib=[a]\nTime=[T1]Size=[U]\nName=[s13]\n",
 	  NULL } },
 
     { SMBfunique, "SMBfunique", 0,
-	{ "Count=[d]\nAttrib=[A]\n",
-	  "Path=[Z]\nBlkType=[B]\nBlkLen=[d]\n|Res1=[B]\nMask=[s11]\nSrv1=[B]\nDirIndex=[d]\nSrv2=[w]\n",
-	  "Count=[d]\n",
-	  "BlkType=[B]\nBlkLen=[d]\n*\nRes1=[B]\nMask=[s11]\nSrv1=[B]\nDirIndex=[d]\nSrv2=[w]\nRes2=[W]\nAttrib=[a]\nTime=[T1]Size=[D]\nName=[s13]\n",
+	{ "Count=[u]\nAttrib=[A]\n",
+	  "Path=[Z]\nBlkType=[B]\nBlkLen=[u]\n|Res1=[B]\nMask=[s11]\nSrv1=[B]\nDirIndex=[u]\nSrv2=[w]\n",
+	  "Count=[u]\n",
+	  "BlkType=[B]\nBlkLen=[u]\n*\nRes1=[B]\nMask=[s11]\nSrv1=[B]\nDirIndex=[u]\nSrv2=[w]\nRes2=[W]\nAttrib=[a]\nTime=[T1]Size=[U]\nName=[s13]\n",
 	  NULL } },
 
     { SMBfclose, "SMBfclose", 0,
-	{ "Count=[d]\nAttrib=[A]\n",
-	  "Path=[Z]\nBlkType=[B]\nBlkLen=[d]\n|Res1=[B]\nMask=[s11]\nSrv1=[B]\nDirIndex=[d]\nSrv2=[w]\n",
-	  "Count=[d]\n",
-	  "BlkType=[B]\nBlkLen=[d]\n*\nRes1=[B]\nMask=[s11]\nSrv1=[B]\nDirIndex=[d]\nSrv2=[w]\nRes2=[W]\nAttrib=[a]\nTime=[T1]Size=[D]\nName=[s13]\n",
+	{ "Count=[u]\nAttrib=[A]\n",
+	  "Path=[Z]\nBlkType=[B]\nBlkLen=[u]\n|Res1=[B]\nMask=[s11]\nSrv1=[B]\nDirIndex=[u]\nSrv2=[w]\n",
+	  "Count=[u]\n",
+	  "BlkType=[B]\nBlkLen=[u]\n*\nRes1=[B]\nMask=[s11]\nSrv1=[B]\nDirIndex=[u]\nSrv2=[w]\nRes2=[W]\nAttrib=[a]\nTime=[T1]Size=[U]\nName=[s13]\n",
 	  NULL } },
 
     { SMBfindnclose, "SMBfindnclose", 0,
-	{ "Handle=[d]\n", NULL, NULL, NULL, NULL } },
+	{ "Handle=[u]\n", NULL, NULL, NULL, NULL } },
 
     { SMBfindclose, "SMBfindclose", 0,
-	{ "Handle=[d]\n", NULL, NULL, NULL, NULL } },
+	{ "Handle=[u]\n", NULL, NULL, NULL, NULL } },
 
     { SMBsends, "SMBsends", 0,
 	{ NULL, "Source=[Z]\nDest=[Z]\n", NULL, NULL, NULL } },
 
     { SMBsendstrt, "SMBsendstrt", 0,
-	{ NULL, "Source=[Z]\nDest=[Z]\n", "GroupID=[d]\n", NULL, NULL } },
+	{ NULL, "Source=[Z]\nDest=[Z]\n", "GroupID=[u]\n", NULL, NULL } },
 
     { SMBsendend, "SMBsendend", 0,
-	{ "GroupID=[d]\n", NULL, NULL, NULL, NULL } },
+	{ "GroupID=[u]\n", NULL, NULL, NULL, NULL } },
 
     { SMBsendtxt, "SMBsendtxt", 0,
-	{ "GroupID=[d]\n", NULL, NULL, NULL, NULL } },
+	{ "GroupID=[u]\n", NULL, NULL, NULL, NULL } },
 
     { SMBsendb, "SMBsendb", 0,
 	{ NULL, "Source=[Z]\nDest=[Z]\n", NULL, NULL, NULL } },
@@ -760,8 +744,8 @@ static struct smbfns smb_fns[] = {
 	{ NULL, NULL, NULL, NULL, print_sesssetup } },
 
     { SMBtconX, "SMBtconX", FLG_CHAIN,
-	{ "Com2=[w]\nOff2=[d]\nFlags=[w]\nPassLen=[d]\nPasswd&Path&Device=\n",
-	  NULL, "Com2=[w]\nOff2=[d]\n", "ServiceType=[R]\n", NULL } },
+	{ "Com2=[w]\nOff2=[u]\nFlags=[w]\nPassLen=[u]\nPasswd&Path&Device=\n",
+	  NULL, "Com2=[w]\nOff2=[u]\n", "ServiceType=[R]\n", NULL } },
 
     { SMBlockingX, "SMBlockingX", FLG_CHAIN,
 	{ NULL, NULL, NULL, NULL, print_lockingandx } },
@@ -777,9 +761,9 @@ static struct smbfns smb_fns[] = {
     { SMBnttranss, "SMBnttranss", 0, DEFDESCRIPT },
 
     { SMBntcreateX, "SMBntcreateX", FLG_CHAIN,
-	{ "Com2=[w]\nOff2=[d]\nRes=[b]\nNameLen=[ld]\nFlags=[W]\nRootDirectoryFid=[D]\nAccessMask=[W]\nAllocationSize=[L]\nExtFileAttributes=[W]\nShareAccess=[W]\nCreateDisposition=[W]\nCreateOptions=[W]\nImpersonationLevel=[W]\nSecurityFlags=[b]\n",
+	{ "Com2=[w]\nOff2=[u]\nRes=[b]\nNameLen=[lu]\nFlags=[W]\nRootDirectoryFid=[U]\nAccessMask=[W]\nAllocationSize=[L]\nExtFileAttributes=[W]\nShareAccess=[W]\nCreateDisposition=[W]\nCreateOptions=[W]\nImpersonationLevel=[W]\nSecurityFlags=[b]\n",
 	  "Path=[C]\n",
-	  "Com2=[w]\nOff2=[d]\nOplockLevel=[b]\nFid=[d]\nCreateAction=[W]\nCreateTime=[T3]LastAccessTime=[T3]LastWriteTime=[T3]ChangeTime=[T3]ExtFileAttributes=[W]\nAllocationSize=[L]\nEndOfFile=[L]\nFileType=[w]\nDeviceState=[w]\nDirectory=[b]\n",
+	  "Com2=[w]\nOff2=[u]\nOplockLevel=[b]\nFid=[u]\nCreateAction=[W]\nCreateTime=[T3]LastAccessTime=[T3]LastWriteTime=[T3]ChangeTime=[T3]ExtFileAttributes=[W]\nAllocationSize=[L]\nEndOfFile=[L]\nFileType=[w]\nDeviceState=[w]\nDirectory=[b]\n",
 	  NULL, NULL } },
 
     { SMBntcancel, "SMBntcancel", 0, DEFDESCRIPT },
@@ -792,47 +776,52 @@ static struct smbfns smb_fns[] = {
  * print a SMB message
  */
 static void
-print_smb(const u_char *buf, const u_char *maxbuf)
+print_smb(netdissect_options *ndo,
+          const u_char *buf, const u_char *maxbuf)
 {
-    u_int16_t flags2;
-    int nterrcodes;
-    int command;
-    u_int32_t nterror;
+    uint16_t flags2;
+    u_int nterrcodes;
+    u_int command;
+    uint32_t nterror;
     const u_char *words, *maxwords, *data;
-    struct smbfns *fn;
+    const struct smbfns *fn;
     const char *fmt_smbheader =
-        "[P4]SMB Command   =  [B]\nError class   =  [BP1]\nError code    =  [d]\nFlags1        =  [B]\nFlags2        =  [B][P13]\nTree ID       =  [d]\nProc ID       =  [d]\nUID           =  [d]\nMID           =  [d]\nWord Count    =  [b]\n";
-    int smboffset;
+        "[P4]SMB Command   =  [B]\nError class   =  [BP1]\nError code    =  [u]\nFlags1        =  [B]\nFlags2        =  [B][P13]\nTree ID       =  [u]\nProc ID       =  [u]\nUID           =  [u]\nMID           =  [u]\nWord Count    =  [b]\n";
+    u_int smboffset;
 
-    TCHECK(buf[9]);
-    request = (buf[9] & 0x80) ? 0 : 1;
-    flags2 = EXTRACT_LE_16BITS(&buf[10]);
-    unicodestr = flags2 & 0x8000;
-    nterrcodes = flags2 & 0x4000;
+    ndo->ndo_protocol = "smb";
+
+    request = (GET_U_1(buf + 9) & 0x80) ? 0 : 1;
     startbuf = buf;
 
-    command = buf[4];
+    command = GET_U_1(buf + 4);
 
     fn = smbfind(command, smb_fns);
 
-    if (vflag > 1)
-	printf("\n");
+    if (ndo->ndo_vflag > 1)
+	ND_PRINT("\n");
 
-    printf("SMB PACKET: %s (%s)\n", fn->name, request ? "REQUEST" : "REPLY");
+    ND_PRINT("SMB PACKET: %s (%s)", fn->name, request ? "REQUEST" : "REPLY");
 
-    if (vflag < 2)
+    if (ndo->ndo_vflag < 2)
 	return;
 
+    ND_PRINT("\n");
+    flags2 = GET_LE_U_2(buf + 10);
+    unicodestr = flags2 & 0x8000;
+    nterrcodes = flags2 & 0x4000;
+
     /* print out the header */
-    smb_fdata(buf, fmt_smbheader, buf + 33, unicodestr);
+    smb_fdata(ndo, buf, fmt_smbheader, buf + 33, unicodestr);
 
     if (nterrcodes) {
-    	nterror = EXTRACT_LE_32BITS(&buf[5]);
+	nterror = GET_LE_U_4(buf + 5);
 	if (nterror)
-	    printf("NTError = %s\n", nt_errstr(nterror));
+	    ND_PRINT("NTError = %s\n", nt_errstr(nterror));
     } else {
-	if (buf[5])
-	    printf("SMBError = %s\n", smb_errstr(buf[5], EXTRACT_LE_16BITS(&buf[7])));
+	if (GET_U_1(buf + 5))
+	    ND_PRINT("SMBError = %s\n", smb_errstr(GET_U_1(buf + 5),
+                                                   GET_LE_U_2(buf + 7)));
     }
 
     smboffset = 32;
@@ -841,13 +830,12 @@ print_smb(const u_char *buf, const u_char *maxbuf)
 	const char *f1, *f2;
 	int wct;
 	u_int bcc;
-	int newsmboffset;
+	u_int newsmboffset;
 
 	words = buf + smboffset;
-	TCHECK(words[0]);
-	wct = words[0];
+	wct = GET_U_1(words);
 	data = words + 1 + wct * 2;
-	maxwords = SMBMIN(data, maxbuf);
+	maxwords = ND_MIN(data, maxbuf);
 
 	if (request) {
 	    f1 = fn->descript.req_f1;
@@ -857,34 +845,34 @@ print_smb(const u_char *buf, const u_char *maxbuf)
 	    f2 = fn->descript.rep_f2;
 	}
 
+	smb_reset();
 	if (fn->descript.fn)
-	    (*fn->descript.fn)(words, data, buf, maxbuf);
+	    (*fn->descript.fn)(ndo, words, data, buf, maxbuf);
 	else {
 	    if (wct) {
 		if (f1)
-		    smb_fdata(words + 1, f1, words + 1 + wct * 2, unicodestr);
+		    smb_fdata(ndo, words + 1, f1, words + 1 + wct * 2, unicodestr);
 		else {
-		    int i;
-		    int v;
+		    u_int i;
+		    u_int v;
 
-		    for (i = 0; &words[1 + 2 * i] < maxwords; i++) {
-			TCHECK2(words[1 + 2 * i], 2);
-			v = EXTRACT_LE_16BITS(words + 1 + 2 * i);
-			printf("smb_vwv[%d]=%d (0x%X)\n", i, v, v);
+		    for (i = 0; words + 1 + 2 * i < maxwords; i++) {
+			v = GET_LE_U_2(words + 1 + 2 * i);
+			ND_PRINT("smb_vwv[%u]=%u (0x%X)\n", i, v, v);
 		    }
 		}
 	    }
 
-	    TCHECK2(*data, 2);
-	    bcc = EXTRACT_LE_16BITS(data);
-	    printf("smb_bcc=%u\n", bcc);
+	    bcc = GET_LE_U_2(data);
+	    ND_PRINT("smb_bcc=%u\n", bcc);
 	    if (f2) {
 		if (bcc > 0)
-		    smb_fdata(data + 2, f2, data + 2 + bcc, unicodestr);
+		    smb_fdata(ndo, data + 2, f2, data + 2 + bcc, unicodestr);
 	    } else {
 		if (bcc > 0) {
-		    printf("smb_buf[]=\n");
-		    print_data(data + 2, SMBMIN(bcc, PTR_DIFF(maxbuf, data + 2)));
+		    ND_PRINT("smb_buf[]=\n");
+		    smb_data_print(ndo, data + 2,
+                                   ND_MIN(bcc, ND_BYTES_BETWEEN(data + 2, maxbuf)));
 		}
 	    }
 	}
@@ -893,29 +881,21 @@ print_smb(const u_char *buf, const u_char *maxbuf)
 	    break;
 	if (wct == 0)
 	    break;
-	TCHECK(words[1]);
-	command = words[1];
+	command = GET_U_1(words + 1);
 	if (command == 0xFF)
 	    break;
-	TCHECK2(words[3], 2);
-	newsmboffset = EXTRACT_LE_16BITS(words + 3); 
+	newsmboffset = GET_LE_U_2(words + 3);
 
 	fn = smbfind(command, smb_fns);
 
-	printf("\nSMB PACKET: %s (%s) (CHAINED)\n",
+	ND_PRINT("\nSMB PACKET: %s (%s) (CHAINED)\n",
 	    fn->name, request ? "REQUEST" : "REPLY");
 	if (newsmboffset <= smboffset) {
-	    printf("Bad andX offset: %u <= %u\n", newsmboffset, smboffset);
+	    ND_PRINT("Bad andX offset: %u <= %u\n", newsmboffset, smboffset);
 	    break;
 	}
 	smboffset = newsmboffset;
     }
-
-    printf("\n");
-    return;
-trunc:
-    printf("[|SMB]");
-    return;
 }
 
 
@@ -923,46 +903,48 @@ trunc:
  * print a NBT packet received across tcp on port 139
  */
 void
-nbt_tcp_print(const u_char *data, int length)
+nbt_tcp_print(netdissect_options *ndo,
+              const u_char *data, u_int length)
 {
-    int caplen;
-    int type;
+    u_int caplen;
+    u_int type;
     u_int nbt_len;
     const u_char *maxbuf;
 
+    ndo->ndo_protocol = "nbt_tcp";
     if (length < 4)
 	goto trunc;
-    if (snapend < data)
+    if (ndo->ndo_snapend < data)
 	goto trunc;
-    caplen = snapend - data;
+    caplen = ND_BYTES_AVAILABLE_AFTER(data);
     if (caplen < 4)
 	goto trunc;
     maxbuf = data + caplen;
-    type = data[0];
-    nbt_len = EXTRACT_16BITS(data + 2);
+    type = GET_U_1(data);
+    nbt_len = GET_BE_U_2(data + 2);
     length -= 4;
     caplen -= 4;
 
     startbuf = data;
 
-    if (vflag < 2) {
-	printf(" NBT Session Packet: ");
+    if (ndo->ndo_vflag < 2) {
+	ND_PRINT(" NBT Session Packet: ");
 	switch (type) {
 	case 0x00:
-	    printf("Session Message");
+	    ND_PRINT("Session Message");
 	    break;
 
 	case 0x81:
-	    printf("Session Request");
+	    ND_PRINT("Session Request");
 	    break;
 
 	case 0x82:
-	    printf("Session Granted");
+	    ND_PRINT("Session Granted");
 	    break;
 
 	case 0x83:
 	  {
-	    int ecode;
+	    u_int ecode;
 
 	    if (nbt_len < 4)
 		goto trunc;
@@ -970,95 +952,95 @@ nbt_tcp_print(const u_char *data, int length)
 		goto trunc;
 	    if (caplen < 4)
 		goto trunc;
-	    ecode = data[4];
+	    ecode = GET_U_1(data + 4);
 
-	    printf("Session Reject, ");
+	    ND_PRINT("Session Reject, ");
 	    switch (ecode) {
 	    case 0x80:
-		printf("Not listening on called name");
+		ND_PRINT("Not listening on called name");
 		break;
 	    case 0x81:
-		printf("Not listening for calling name");
+		ND_PRINT("Not listening for calling name");
 		break;
 	    case 0x82:
-		printf("Called name not present");
+		ND_PRINT("Called name not present");
 		break;
 	    case 0x83:
-		printf("Called name present, but insufficient resources");
+		ND_PRINT("Called name present, but insufficient resources");
 		break;
 	    default:
-		printf("Unspecified error 0x%X", ecode);
+		ND_PRINT("Unspecified error 0x%X", ecode);
 		break;
 	    }
 	  }
 	    break;
 
 	case 0x85:
-	    printf("Session Keepalive");
+	    ND_PRINT("Session Keepalive");
 	    break;
 
 	default:
-	    data = smb_fdata(data, "Unknown packet type [rB]", maxbuf, 0);
+	    data = smb_fdata(ndo, data, "Unknown packet type [rB]", maxbuf, 0);
 	    break;
 	}
     } else {
-	printf ("\n>>> NBT Session Packet\n");
+	ND_PRINT("\n>>> NBT Session Packet\n");
 	switch (type) {
 	case 0x00:
-	    data = smb_fdata(data, "[P1]NBT Session Message\nFlags=[B]\nLength=[rd]\n",
+	    data = smb_fdata(ndo, data, "[P1]NBT Session Message\nFlags=[B]\nLength=[ru]\n",
 		data + 4, 0);
 	    if (data == NULL)
 		break;
 	    if (nbt_len >= 4 && caplen >= 4 && memcmp(data,"\377SMB",4) == 0) {
-		if ((int)nbt_len > caplen) {
-		    if ((int)nbt_len > length)
-			printf("WARNING: Packet is continued in later TCP segments\n");
+		if (nbt_len > caplen) {
+		    if (nbt_len > length)
+			ND_PRINT("WARNING: Packet is continued in later TCP segments\n");
 		    else
-			printf("WARNING: Short packet. Try increasing the snap length by %d\n",
+			ND_PRINT("WARNING: Short packet. Try increasing the snap length by %u\n",
 			    nbt_len - caplen);
 		}
-		print_smb(data, maxbuf > data + nbt_len ? data + nbt_len : maxbuf);
+		print_smb(ndo, data, maxbuf > data + nbt_len ? data + nbt_len : maxbuf);
 	    } else
-		printf("Session packet:(raw data or continuation?)\n");
+		ND_PRINT("Session packet:(raw data or continuation?)\n");
 	    break;
 
 	case 0x81:
-	    data = smb_fdata(data,
-		"[P1]NBT Session Request\nFlags=[B]\nLength=[rd]\nDestination=[n1]\nSource=[n1]\n",
+	    data = smb_fdata(ndo, data,
+		"[P1]NBT Session Request\nFlags=[B]\nLength=[ru]\nDestination=[n1]\nSource=[n1]\n",
 		maxbuf, 0);
 	    break;
 
 	case 0x82:
-	    data = smb_fdata(data, "[P1]NBT Session Granted\nFlags=[B]\nLength=[rd]\n", maxbuf, 0);
+	    data = smb_fdata(ndo, data, "[P1]NBT Session Granted\nFlags=[B]\nLength=[ru]\n", maxbuf, 0);
 	    break;
 
 	case 0x83:
 	  {
 	    const u_char *origdata;
-	    int ecode;
+	    u_int ecode;
 
 	    origdata = data;
-	    data = smb_fdata(data, "[P1]NBT SessionReject\nFlags=[B]\nLength=[rd]\nReason=[B]\n",
+	    data = smb_fdata(ndo, data, "[P1]NBT SessionReject\nFlags=[B]\nLength=[ru]\nReason=[B]\n",
 		maxbuf, 0);
 	    if (data == NULL)
 		break;
 	    if (nbt_len >= 1 && caplen >= 1) {
-		ecode = origdata[4];
+		ecode = GET_U_1(origdata + 4);
 		switch (ecode) {
 		case 0x80:
-		    printf("Not listening on called name\n");
+		    ND_PRINT("Not listening on called name\n");
 		    break;
 		case 0x81:
-		    printf("Not listening for calling name\n");
+		    ND_PRINT("Not listening for calling name\n");
 		    break;
 		case 0x82:
-		    printf("Called name not present\n");
+		    ND_PRINT("Called name not present\n");
 		    break;
 		case 0x83:
-		    printf("Called name present, but insufficient resources\n");
+		    ND_PRINT("Called name present, but insufficient resources\n");
 		    break;
 		default:
-		    printf("Unspecified error 0x%X\n", ecode);
+		    ND_PRINT("Unspecified error 0x%X\n", ecode);
 		    break;
 		}
 	    }
@@ -1066,88 +1048,72 @@ nbt_tcp_print(const u_char *data, int length)
 	    break;
 
 	case 0x85:
-	    data = smb_fdata(data, "[P1]NBT Session Keepalive\nFlags=[B]\nLength=[rd]\n", maxbuf, 0);
+	    data = smb_fdata(ndo, data, "[P1]NBT Session Keepalive\nFlags=[B]\nLength=[ru]\n", maxbuf, 0);
 	    break;
 
 	default:
-	    data = smb_fdata(data, "NBT - Unknown packet type\nType=[B]\n", maxbuf, 0);
+	    data = smb_fdata(ndo, data, "NBT - Unknown packet type\nType=[B]\n", maxbuf, 0);
 	    break;
 	}
-	printf("\n");
-	fflush(stdout);
     }
     return;
 trunc:
-    printf("[|SMB]");
-    return;
+    nd_print_trunc(ndo);
 }
 
+static const struct tok opcode_str[] = {
+	{ 0,  "QUERY"                   },
+	{ 5,  "REGISTRATION"            },
+	{ 6,  "RELEASE"                 },
+	{ 7,  "WACK"                    },
+	{ 8,  "REFRESH(8)"              },
+	{ 9,  "REFRESH"                 },
+	{ 15, "MULTIHOMED REGISTRATION" },
+	{ 0, NULL }
+};
 
 /*
  * print a NBT packet received across udp on port 137
  */
 void
-nbt_udp137_print(const u_char *data, int length)
+nbt_udp137_print(netdissect_options *ndo,
+                 const u_char *data, u_int length)
 {
     const u_char *maxbuf = data + length;
-    int name_trn_id, response, opcode, nm_flags, rcode;
-    int qdcount, ancount, nscount, arcount;
-    const char *opcodestr;
+    u_int name_trn_id, response, opcode, nm_flags, rcode;
+    u_int qdcount, ancount, nscount, arcount;
     const u_char *p;
-    int total, i;
+    u_int total, i;
 
-    TCHECK2(data[10], 2);
-    name_trn_id = EXTRACT_16BITS(data);
-    response = (data[2] >> 7);
-    opcode = (data[2] >> 3) & 0xF;
-    nm_flags = ((data[2] & 0x7) << 4) + (data[3] >> 4);
-    rcode = data[3] & 0xF;
-    qdcount = EXTRACT_16BITS(data + 4);
-    ancount = EXTRACT_16BITS(data + 6);
-    nscount = EXTRACT_16BITS(data + 8);
-    arcount = EXTRACT_16BITS(data + 10);
+    ndo->ndo_protocol = "nbt_udp137";
+    name_trn_id = GET_BE_U_2(data);
+    response = (GET_U_1(data + 2) >> 7);
+    opcode = (GET_U_1(data + 2) >> 3) & 0xF;
+    nm_flags = ((GET_U_1(data + 2) & 0x7) << 4) + (GET_U_1(data + 3) >> 4);
+    rcode = GET_U_1(data + 3) & 0xF;
+    qdcount = GET_BE_U_2(data + 4);
+    ancount = GET_BE_U_2(data + 6);
+    nscount = GET_BE_U_2(data + 8);
+    arcount = GET_BE_U_2(data + 10);
     startbuf = data;
 
     if (maxbuf <= data)
 	return;
 
-    if (vflag > 1)
-	printf("\n>>> ");
+    if (ndo->ndo_vflag > 1)
+	ND_PRINT("\n>>> ");
 
-    printf("NBT UDP PACKET(137): ");
-
-    switch (opcode) {
-    case 0: opcodestr = "QUERY"; break;
-    case 5: opcodestr = "REGISTRATION"; break;
-    case 6: opcodestr = "RELEASE"; break;
-    case 7: opcodestr = "WACK"; break;
-    case 8: opcodestr = "REFRESH(8)"; break;
-    case 9: opcodestr = "REFRESH"; break;
-    case 15: opcodestr = "MULTIHOMED REGISTRATION"; break;
-    default: opcodestr = "OPUNKNOWN"; break;
-    }
-    printf("%s", opcodestr);
+    ND_PRINT("NBT UDP PACKET(137): %s", tok2str(opcode_str, "OPUNKNOWN", opcode));
     if (response) {
-	if (rcode)
-	    printf("; NEGATIVE");
-	else
-	    printf("; POSITIVE");
+        ND_PRINT("; %s", rcode ? "NEGATIVE" : "POSITIVE");
     }
+    ND_PRINT("; %s; %s", response ? "RESPONSE" : "REQUEST",
+              (nm_flags & 1) ? "BROADCAST" : "UNICAST");
 
-    if (response)
-	printf("; RESPONSE");
-    else
-	printf("; REQUEST");
-
-    if (nm_flags & 1)
-	printf("; BROADCAST");
-    else
-	printf("; UNICAST");
-
-    if (vflag < 2)
+    if (ndo->ndo_vflag < 2)
 	return;
 
-    printf("\nTrnID=0x%X\nOpCode=%d\nNmFlags=0x%X\nRcode=%d\nQueryCount=%d\nAnswerCount=%d\nAuthorityCount=%d\nAddressRecCount=%d\n",
+    ND_PRINT("\nTrnID=0x%X\nOpCode=%u\nNmFlags=0x%X\nRcode=%u\nQueryCount=%u\nAnswerCount=%u\nAuthorityCount=%u\nAddressRecCount=%u\n",
 	name_trn_id, opcode, nm_flags, rcode, qdcount, ancount, nscount,
 	arcount);
 
@@ -1156,14 +1122,14 @@ nbt_udp137_print(const u_char *data, int length)
     total = ancount + nscount + arcount;
 
     if (qdcount > 100 || total > 100) {
-	printf("Corrupt packet??\n");
+	ND_PRINT("Corrupt packet??\n");
 	return;
     }
 
     if (qdcount) {
-	printf("QuestionRecords:\n");
+	ND_PRINT("QuestionRecords:\n");
 	for (i = 0; i < qdcount; i++) {
-	    p = smb_fdata(p,
+	    p = smb_fdata(ndo, p,
 		"|Name=[n1]\nQuestionType=[rw]\nQuestionClass=[rw]\n#",
 		maxbuf, 0);
 	    if (p == NULL)
@@ -1172,60 +1138,65 @@ nbt_udp137_print(const u_char *data, int length)
     }
 
     if (total) {
-	printf("\nResourceRecords:\n");
+	ND_PRINT("\nResourceRecords:\n");
 	for (i = 0; i < total; i++) {
-	    int rdlen;
-	    int restype;
+	    u_int rdlen;
+	    u_int restype;
 
-	    p = smb_fdata(p, "Name=[n1]\n#", maxbuf, 0);
+	    p = smb_fdata(ndo, p, "Name=[n1]\n#", maxbuf, 0);
 	    if (p == NULL)
 		goto out;
-	    restype = EXTRACT_16BITS(p);
-	    p = smb_fdata(p, "ResType=[rw]\nResClass=[rw]\nTTL=[rD]\n", p + 8, 0);
+	    restype = GET_BE_U_2(p);
+	    p = smb_fdata(ndo, p, "ResType=[rw]\nResClass=[rw]\nTTL=[rU]\n", p + 8, 0);
 	    if (p == NULL)
 		goto out;
-	    rdlen = EXTRACT_16BITS(p);
-	    printf("ResourceLength=%d\nResourceData=\n", rdlen);
+	    rdlen = GET_BE_U_2(p);
+	    ND_PRINT("ResourceLength=%u\nResourceData=\n", rdlen);
 	    p += 2;
 	    if (rdlen == 6) {
-		p = smb_fdata(p, "AddrType=[rw]\nAddress=[b.b.b.b]\n", p + rdlen, 0);
+		p = smb_fdata(ndo, p, "AddrType=[rw]\nAddress=[b.b.b.b]\n", p + rdlen, 0);
 		if (p == NULL)
 		    goto out;
 	    } else {
 		if (restype == 0x21) {
-		    int numnames;
+		    u_int numnames;
 
-		    TCHECK(*p);
-		    numnames = p[0];
-		    p = smb_fdata(p, "NumNames=[B]\n", p + 1, 0);
+		    numnames = GET_U_1(p);
+		    p = smb_fdata(ndo, p, "NumNames=[B]\n", p + 1, 0);
 		    if (p == NULL)
 			goto out;
-		    while (numnames--) {
-			p = smb_fdata(p, "Name=[n2]\t#", maxbuf, 0);
+		    while (numnames) {
+			p = smb_fdata(ndo, p, "Name=[n2]\t#", maxbuf, 0);
 			if (p == NULL)
 			    goto out;
-			TCHECK(*p);
-			if (p[0] & 0x80)
-			    printf("<GROUP> ");
-			switch (p[0] & 0x60) {
-			case 0x00: printf("B "); break;
-			case 0x20: printf("P "); break;
-			case 0x40: printf("M "); break;
-			case 0x60: printf("_ "); break;
+			ND_TCHECK_1(p);
+			if (p >= maxbuf)
+			    goto out;
+			if (GET_U_1(p) & 0x80)
+			    ND_PRINT("<GROUP> ");
+			switch (GET_U_1(p) & 0x60) {
+			case 0x00: ND_PRINT("B "); break;
+			case 0x20: ND_PRINT("P "); break;
+			case 0x40: ND_PRINT("M "); break;
+			case 0x60: ND_PRINT("_ "); break;
 			}
-			if (p[0] & 0x10)
-			    printf("<DEREGISTERING> ");
-			if (p[0] & 0x08)
-			    printf("<CONFLICT> ");
-			if (p[0] & 0x04)
-			    printf("<ACTIVE> ");
-			if (p[0] & 0x02)
-			    printf("<PERMANENT> ");
-			printf("\n");
+			if (GET_U_1(p) & 0x10)
+			    ND_PRINT("<DEREGISTERING> ");
+			if (GET_U_1(p) & 0x08)
+			    ND_PRINT("<CONFLICT> ");
+			if (GET_U_1(p) & 0x04)
+			    ND_PRINT("<ACTIVE> ");
+			if (GET_U_1(p) & 0x02)
+			    ND_PRINT("<PERMANENT> ");
+			ND_PRINT("\n");
 			p += 2;
+			numnames--;
 		    }
 		} else {
-		    print_data(p, min(rdlen, length - (p - data)));
+		    if (p >= maxbuf)
+		        goto out;
+		    smb_data_print(ndo, p,
+                                   ND_MIN(rdlen, length - ND_BYTES_BETWEEN(data, p)));
 		    p += rdlen;
 		}
 	    }
@@ -1233,36 +1204,35 @@ nbt_udp137_print(const u_char *data, int length)
     }
 
     if (p < maxbuf)
-	smb_fdata(p, "AdditionalData:\n", maxbuf, 0);
+	smb_fdata(ndo, p, "AdditionalData:\n", maxbuf, 0);
 
 out:
-    printf("\n");
-    fflush(stdout);
     return;
 trunc:
-    printf("[|SMB]");
-    return;
+    nd_print_trunc(ndo);
 }
 
 /*
  * Print an SMB-over-TCP packet received across tcp on port 445
  */
 void
-smb_tcp_print (const u_char * data, int length)
+smb_tcp_print(netdissect_options *ndo,
+              const u_char * data, u_int length)
 {
-    int caplen;
+    u_int caplen;
     u_int smb_len;
     const u_char *maxbuf;
 
+    ndo->ndo_protocol = "smb_tcp";
     if (length < 4)
 	goto trunc;
-    if (snapend < data)
+    if (ndo->ndo_snapend < data)
 	goto trunc;
-    caplen = snapend - data;
+    caplen = ND_BYTES_AVAILABLE_AFTER(data);
     if (caplen < 4)
 	goto trunc;
     maxbuf = data + caplen;
-    smb_len = EXTRACT_24BITS(data + 1);
+    smb_len = GET_BE_U_3(data + 1);
     length -= 4;
     caplen -= 4;
 
@@ -1270,63 +1240,64 @@ smb_tcp_print (const u_char * data, int length)
     data += 4;
 
     if (smb_len >= 4 && caplen >= 4 && memcmp(data,"\377SMB",4) == 0) {
-	if ((int)smb_len > caplen) {
-	    if ((int)smb_len > length)
-		printf("WARNING: Packet is continued in later TCP segments\n");
+	if (smb_len > caplen) {
+	    if (smb_len > length)
+		ND_PRINT(" WARNING: Packet is continued in later TCP segments\n");
 	    else
-		printf("WARNING: Short packet. Try increasing the snap length by %d\n",
+		ND_PRINT(" WARNING: Short packet. Try increasing the snap length by %u\n",
 		    smb_len - caplen);
-	}
-	print_smb(data, maxbuf > data + smb_len ? data + smb_len : maxbuf);
+	} else
+	    ND_PRINT(" ");
+	print_smb(ndo, data, maxbuf > data + smb_len ? data + smb_len : maxbuf);
     } else
-	printf("SMB-over-TCP packet:(raw data or continuation?)\n");
+	ND_PRINT(" SMB-over-TCP packet:(raw data or continuation?)\n");
     return;
 trunc:
-    printf("[|SMB]");
-    return;
+    nd_print_trunc(ndo);
 }
 
 /*
  * print a NBT packet received across udp on port 138
  */
 void
-nbt_udp138_print(const u_char *data, int length)
+nbt_udp138_print(netdissect_options *ndo,
+                 const u_char *data, u_int length)
 {
     const u_char *maxbuf = data + length;
 
-    if (maxbuf > snapend)
-	maxbuf = snapend;
+    ndo->ndo_protocol = "nbt_udp138";
+    if (maxbuf > ndo->ndo_snapend)
+	maxbuf = ndo->ndo_snapend;
     if (maxbuf <= data)
 	return;
     startbuf = data;
 
-    if (vflag < 2) {
-	printf("NBT UDP PACKET(138)");
+    if (ndo->ndo_vflag < 2) {
+	ND_PRINT("NBT UDP PACKET(138)");
 	return;
     }
 
-    data = smb_fdata(data,
-	"\n>>> NBT UDP PACKET(138) Res=[rw] ID=[rw] IP=[b.b.b.b] Port=[rd] Length=[rd] Res2=[rw]\nSourceName=[n1]\nDestName=[n1]\n#",
+    data = smb_fdata(ndo, data,
+	"\n>>> NBT UDP PACKET(138) Res=[rw] ID=[rw] IP=[b.b.b.b] Port=[ru] Length=[ru] Res2=[rw]\nSourceName=[n1]\nDestName=[n1]\n#",
 	maxbuf, 0);
 
     if (data != NULL) {
 	/* If there isn't enough data for "\377SMB", don't check for it. */
-	if (&data[3] >= maxbuf)
+	if ((data + 3) >= maxbuf)
 	    goto out;
 
 	if (memcmp(data, "\377SMB",4) == 0)
-	    print_smb(data, maxbuf);
+	    print_smb(ndo, data, maxbuf);
     }
 out:
-    printf("\n");
-    fflush(stdout);
+    return;
 }
 
 
 /*
    print netbeui frames
 */
-struct nbf_strings {
+static struct nbf_strings {
 	const char	*name;
 	const char	*nonverbose;
 	const char	*verbose;
@@ -1382,19 +1353,20 @@ struct nbf_strings {
 };
 
 void
-netbeui_print(u_short control, const u_char *data, int length)
+netbeui_print(netdissect_options *ndo,
+              u_short control, const u_char *data, u_int length)
 {
     const u_char *maxbuf = data + length;
-    int len;
-    int command;
+    u_int len;
+    u_int command;
     const u_char *data2;
     int is_truncated = 0;
 
-    if (maxbuf > snapend)
-	maxbuf = snapend;
-    TCHECK(data[4]);
-    len = EXTRACT_LE_16BITS(data);
-    command = data[4];
+    ndo->ndo_protocol = "netbeui";
+    if (maxbuf > ndo->ndo_snapend)
+	maxbuf = ndo->ndo_snapend;
+    len = GET_LE_U_2(data);
+    command = GET_U_1(data + 4);
     data2 = data + len;
     if (data2 >= maxbuf) {
 	data2 = maxbuf;
@@ -1403,36 +1375,36 @@ netbeui_print(u_short control, const u_char *data, int length)
 
     startbuf = data;
 
-    if (vflag < 2) {
-	printf("NBF Packet: ");
-	data = smb_fdata(data, "[P5]#", maxbuf, 0);
+    if (ndo->ndo_vflag < 2) {
+	ND_PRINT("NBF Packet: ");
+	data = smb_fdata(ndo, data, "[P5]#", maxbuf, 0);
     } else {
-	printf("\n>>> NBF Packet\nType=0x%X ", control);
-	data = smb_fdata(data, "Length=[d] Signature=[w] Command=[B]\n#", maxbuf, 0);
+	ND_PRINT("\n>>> NBF Packet\nType=0x%X ", control);
+	data = smb_fdata(ndo, data, "Length=[u] Signature=[w] Command=[B]\n#", maxbuf, 0);
     }
     if (data == NULL)
 	goto out;
 
     if (command > 0x1f || nbf_strings[command].name == NULL) {
-	if (vflag < 2)
-	    data = smb_fdata(data, "Unknown NBF Command#", data2, 0);
+	if (ndo->ndo_vflag < 2)
+	    data = smb_fdata(ndo, data, "Unknown NBF Command#", data2, 0);
 	else
-	    data = smb_fdata(data, "Unknown NBF Command\n", data2, 0);
+	    data = smb_fdata(ndo, data, "Unknown NBF Command\n", data2, 0);
     } else {
-	if (vflag < 2) {
-	    printf("%s", nbf_strings[command].name);
+	if (ndo->ndo_vflag < 2) {
+	    ND_PRINT("%s", nbf_strings[command].name);
 	    if (nbf_strings[command].nonverbose != NULL)
-		data = smb_fdata(data, nbf_strings[command].nonverbose, data2, 0);
+		data = smb_fdata(ndo, data, nbf_strings[command].nonverbose, data2, 0);
 	} else {
-	    printf("%s:\n", nbf_strings[command].name);
+	    ND_PRINT("%s:\n", nbf_strings[command].name);
 	    if (nbf_strings[command].verbose != NULL)
-		data = smb_fdata(data, nbf_strings[command].verbose, data2, 0);
+		data = smb_fdata(ndo, data, nbf_strings[command].verbose, data2, 0);
 	    else
-		printf("\n");
+		ND_PRINT("\n");
 	}
     }
 
-    if (vflag < 2)
+    if (ndo->ndo_vflag < 2)
 	return;
 
     if (data == NULL)
@@ -1449,29 +1421,25 @@ netbeui_print(u_short control, const u_char *data, int length)
 	goto out;
 
     /* If there isn't enough data for "\377SMB", don't look for it. */
-    if (&data2[3] >= maxbuf)
+    if ((data2 + 3) >= maxbuf)
 	goto out;
 
     if (memcmp(data2, "\377SMB",4) == 0)
-	print_smb(data2, maxbuf);
+	print_smb(ndo, data2, maxbuf);
     else {
-	int i;
+	u_int i;
 	for (i = 0; i < 128; i++) {
-	    if (&data2[i + 3] >= maxbuf)
+	    if ((data2 + i + 3) >= maxbuf)
 		break;
-	    if (memcmp(&data2[i], "\377SMB", 4) == 0) {
-		printf("found SMB packet at %d\n", i);
-		print_smb(&data2[i], maxbuf);
+	    if (memcmp(data2 + i, "\377SMB", 4) == 0) {
+		ND_PRINT("found SMB packet at %u\n", i);
+		print_smb(ndo, data2 + i, maxbuf);
 		break;
 	    }
 	}
     }
 
 out:
-    printf("\n");
-    return;
-trunc:
-    printf("[|SMB]");
     return;
 }
 
@@ -1480,31 +1448,31 @@ trunc:
  * print IPX-Netbios frames
  */
 void
-ipx_netbios_print(const u_char *data, u_int length)
+ipx_netbios_print(netdissect_options *ndo,
+                  const u_char *data, u_int length)
 {
     /*
      * this is a hack till I work out how to parse the rest of the
      * NetBIOS-over-IPX stuff
      */
-    int i;
+    u_int i;
     const u_char *maxbuf;
 
+    ndo->ndo_protocol = "ipx_netbios";
     maxbuf = data + length;
     /* Don't go past the end of the captured data in the packet. */
-    if (maxbuf > snapend)
-	maxbuf = snapend;
+    if (maxbuf > ndo->ndo_snapend)
+	maxbuf = ndo->ndo_snapend;
     startbuf = data;
     for (i = 0; i < 128; i++) {
-	if (&data[i + 4] > maxbuf)
+	if ((data + i + 4) > maxbuf)
 	    break;
-	if (memcmp(&data[i], "\377SMB", 4) == 0) {
-	    smb_fdata(data, "\n>>> IPX transport ", &data[i], 0);
-	    print_smb(&data[i], maxbuf);
-	    printf("\n");
-	    fflush(stdout);
+	if (memcmp(data + i, "\377SMB", 4) == 0) {
+	    smb_fdata(ndo, data, "\n>>> IPX transport ", data + i, 0);
+	    print_smb(ndo, data + i, maxbuf);
 	    break;
 	}
     }
     if (i == 128)
-	smb_fdata(data, "\n>>> Unknown IPX ", maxbuf, 0);
+	smb_fdata(ndo, data, "\n>>> Unknown IPX ", maxbuf, 0);
 }

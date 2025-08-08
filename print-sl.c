@@ -19,120 +19,120 @@
  * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  */
 
-#ifndef lint
-static const char rcsid[] _U_ =
-    "@(#) $Header: /tcpdump/master/tcpdump/print-sl.c,v 1.65 2005-04-06 21:32:42 mcr Exp $ (LBL)";
-#endif
+/* \summary: Compressed Serial Line Internet Protocol printer */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
+#include <config.h>
 
-#include <tcpdump-stdinc.h>
+#include "netdissect-stdinc.h"
 
-#include <pcap.h>
-#include <stdio.h>
-
-#include "interface.h"
-#include "addrtoname.h"
-#include "extract.h"			/* must come after interface.h */
+#define ND_LONGJMP_FROM_TCHECK
+#include "netdissect.h"
+#include "extract.h"
 
 #include "ip.h"
 #include "tcp.h"
-#include "slip.h"
 #include "slcompress.h"
+
+/*
+ * definitions of the pseudo- link-level header attached to slip
+ * packets grabbed by the packet filter (bpf) traffic monitor.
+ */
+#define SLIP_HDRLEN 16
+
+#define SLX_DIR 0
+#define SLX_CHDR 1
+
+#define SLIPDIR_IN 0
+#define SLIPDIR_OUT 1
+
 
 static u_int lastlen[2][256];
 static u_int lastconn = 255;
 
-static void sliplink_print(const u_char *, const struct ip *, u_int);
-static void compressed_sl_print(const u_char *, const struct ip *, u_int, int);
+static void sliplink_print(netdissect_options *, const u_char *, const struct ip *, u_int);
+static void compressed_sl_print(netdissect_options *, const u_char *, const struct ip *, u_int, int);
 
-u_int
-sl_if_print(const struct pcap_pkthdr *h, const u_char *p)
+void
+sl_if_print(netdissect_options *ndo,
+            const struct pcap_pkthdr *h, const u_char *p)
 {
-	register u_int caplen = h->caplen;
-	register u_int length = h->len;
-	register const struct ip *ip;
+	u_int length = h->len;
+	const struct ip *ip;
 
-	if (caplen < SLIP_HDRLEN) {
-		printf("[|slip]");
-		return (caplen);
-	}
+	ndo->ndo_protocol = "slip";
+	ND_TCHECK_LEN(p, SLIP_HDRLEN);
+	ndo->ndo_ll_hdr_len += SLIP_HDRLEN;
 
 	length -= SLIP_HDRLEN;
 
-	ip = (struct ip *)(p + SLIP_HDRLEN);
+	ip = (const struct ip *)(p + SLIP_HDRLEN);
 
-	if (eflag)
-		sliplink_print(p, ip, length);
+	if (ndo->ndo_eflag)
+		sliplink_print(ndo, p, ip, length);
 
 	switch (IP_V(ip)) {
 	case 4:
-	        ip_print(gndo, (u_char *)ip, length);
+	        ip_print(ndo, (const u_char *)ip, length);
 		break;
-#ifdef INET6
 	case 6:
-		ip6_print(gndo, (u_char *)ip, length);
+		ip6_print(ndo, (const u_char *)ip, length);
 		break;
-#endif
 	default:
-		printf ("ip v%d", IP_V(ip));
+		ND_PRINT("ip v%u", IP_V(ip));
 	}
-
-	return (SLIP_HDRLEN);
 }
 
-u_int
-sl_bsdos_if_print(const struct pcap_pkthdr *h, const u_char *p)
+void
+sl_bsdos_if_print(netdissect_options *ndo,
+                  const struct pcap_pkthdr *h, const u_char *p)
 {
-	register u_int caplen = h->caplen;
-	register u_int length = h->len;
-	register const struct ip *ip;
+	u_int length = h->len;
+	const struct ip *ip;
 
-	if (caplen < SLIP_HDRLEN) {
-		printf("[|slip]");
-		return (caplen);
-	}
+	ndo->ndo_protocol = "slip_bsdos";
+	ND_TCHECK_LEN(p, SLIP_HDRLEN);
+	ndo->ndo_ll_hdr_len += SLIP_HDRLEN;
 
 	length -= SLIP_HDRLEN;
 
-	ip = (struct ip *)(p + SLIP_HDRLEN);
+	ip = (const struct ip *)(p + SLIP_HDRLEN);
 
 #ifdef notdef
-	if (eflag)
-		sliplink_print(p, ip, length);
+	if (ndo->ndo_eflag)
+		sliplink_print(ndo, p, ip, length);
 #endif
 
-	ip_print(gndo, (u_char *)ip, length);
-
-	return (SLIP_HDRLEN);
+	ip_print(ndo, (const u_char *)ip, length);
 }
 
 static void
-sliplink_print(register const u_char *p, register const struct ip *ip,
-	       register u_int length)
+sliplink_print(netdissect_options *ndo,
+               const u_char *p, const struct ip *ip,
+               u_int length)
 {
 	int dir;
 	u_int hlen;
 
-	dir = p[SLX_DIR];
-	putchar(dir == SLIPDIR_IN ? 'I' : 'O');
-	putchar(' ');
+	dir = GET_U_1(p + SLX_DIR);
+	switch (dir) {
 
-	if (nflag) {
-		/* XXX just dump the header */
-		register int i;
+	case SLIPDIR_IN:
+		ND_PRINT("I ");
+		break;
 
-		for (i = SLX_CHDR; i < SLX_CHDR + CHDR_LEN - 1; ++i)
-			printf("%02x.", p[i]);
-		printf("%02x: ", p[SLX_CHDR + CHDR_LEN - 1]);
-		return;
+	case SLIPDIR_OUT:
+		ND_PRINT("O ");
+		break;
+
+	default:
+		ND_PRINT("Invalid direction %d ", dir);
+		dir = -1;
+		break;
 	}
-	switch (p[SLX_CHDR] & 0xf0) {
+	switch (GET_U_1(p + SLX_CHDR) & 0xf0) {
 
 	case TYPE_IP:
-		printf("ip %d: ", length + SLIP_HDRLEN);
+		ND_PRINT("ip %u: ", length + SLIP_HDRLEN);
 		break;
 
 	case TYPE_UNCOMPRESSED_TCP:
@@ -141,99 +141,117 @@ sliplink_print(register const u_char *p, register const struct ip *ip,
 		 * Get it from the link layer since sl_uncompress_tcp()
 		 * has restored the IP header copy to IPPROTO_TCP.
 		 */
-		lastconn = ((struct ip *)&p[SLX_CHDR])->ip_p;
+		lastconn = GET_U_1(((const struct ip *)(p + SLX_CHDR))->ip_p);
+		ND_PRINT("utcp %u: ", lastconn);
+		if (dir == -1) {
+			/* Direction is bogus, don't use it */
+			return;
+		}
+		ND_TCHECK_SIZE(ip);
 		hlen = IP_HL(ip);
-		hlen += TH_OFF((struct tcphdr *)&((int *)ip)[hlen]);
+		ND_TCHECK_SIZE((const struct tcphdr *)&((const int *)ip)[hlen]);
+		hlen += TH_OFF((const struct tcphdr *)&((const int *)ip)[hlen]);
 		lastlen[dir][lastconn] = length - (hlen << 2);
-		printf("utcp %d: ", lastconn);
 		break;
 
 	default:
-		if (p[SLX_CHDR] & TYPE_COMPRESSED_TCP) {
-			compressed_sl_print(&p[SLX_CHDR], ip,
-			    length, dir);
-			printf(": ");
+		if (dir == -1) {
+			/* Direction is bogus, don't use it */
+			return;
+		}
+		if (GET_U_1(p + SLX_CHDR) & TYPE_COMPRESSED_TCP) {
+			compressed_sl_print(ndo, p + SLX_CHDR, ip, length, dir);
+			ND_PRINT(": ");
 		} else
-			printf("slip-%d!: ", p[SLX_CHDR]);
+			ND_PRINT("slip-%u!: ", GET_U_1(p + SLX_CHDR));
 	}
 }
 
 static const u_char *
-print_sl_change(const char *str, register const u_char *cp)
+print_sl_change(netdissect_options *ndo,
+                const char *str, const u_char *cp)
 {
-	register u_int i;
+	u_int i;
 
-	if ((i = *cp++) == 0) {
-		i = EXTRACT_16BITS(cp);
+	if ((i = GET_U_1(cp)) == 0) {
+		cp++;
+		i = GET_BE_U_2(cp);
 		cp += 2;
 	}
-	printf(" %s%d", str, i);
+	ND_PRINT(" %s%u", str, i);
 	return (cp);
 }
 
 static const u_char *
-print_sl_winchange(register const u_char *cp)
+print_sl_winchange(netdissect_options *ndo,
+                   const u_char *cp)
 {
-	register short i;
+	int16_t i;
 
-	if ((i = *cp++) == 0) {
-		i = EXTRACT_16BITS(cp);
+	if ((i = GET_U_1(cp)) == 0) {
+		cp++;
+		i = GET_BE_S_2(cp);
 		cp += 2;
 	}
 	if (i >= 0)
-		printf(" W+%d", i);
+		ND_PRINT(" W+%d", i);
 	else
-		printf(" W%d", i);
+		ND_PRINT(" W%d", i);
 	return (cp);
 }
 
 static void
-compressed_sl_print(const u_char *chdr, const struct ip *ip,
-		    u_int length, int dir)
+compressed_sl_print(netdissect_options *ndo,
+                    const u_char *chdr, const struct ip *ip,
+                    u_int length, int dir)
 {
-	register const u_char *cp = chdr;
-	register u_int flags, hlen;
+	const u_char *cp = chdr;
+	u_int flags, hlen;
 
-	flags = *cp++;
+	flags = GET_U_1(cp);
+	cp++;
 	if (flags & NEW_C) {
-		lastconn = *cp++;
-		printf("ctcp %d", lastconn);
+		lastconn = GET_U_1(cp);
+		cp++;
+		ND_PRINT("ctcp %u", lastconn);
 	} else
-		printf("ctcp *");
+		ND_PRINT("ctcp *");
 
 	/* skip tcp checksum */
 	cp += 2;
 
 	switch (flags & SPECIALS_MASK) {
 	case SPECIAL_I:
-		printf(" *SA+%d", lastlen[dir][lastconn]);
+		ND_PRINT(" *SA+%u", lastlen[dir][lastconn]);
 		break;
 
 	case SPECIAL_D:
-		printf(" *S+%d", lastlen[dir][lastconn]);
+		ND_PRINT(" *S+%u", lastlen[dir][lastconn]);
 		break;
 
 	default:
 		if (flags & NEW_U)
-			cp = print_sl_change("U=", cp);
+			cp = print_sl_change(ndo, "U=", cp);
 		if (flags & NEW_W)
-			cp = print_sl_winchange(cp);
+			cp = print_sl_winchange(ndo, cp);
 		if (flags & NEW_A)
-			cp = print_sl_change("A+", cp);
+			cp = print_sl_change(ndo, "A+", cp);
 		if (flags & NEW_S)
-			cp = print_sl_change("S+", cp);
+			cp = print_sl_change(ndo, "S+", cp);
 		break;
 	}
 	if (flags & NEW_I)
-		cp = print_sl_change("I+", cp);
+		cp = print_sl_change(ndo, "I+", cp);
 
 	/*
 	 * 'hlen' is the length of the uncompressed TCP/IP header (in words).
 	 * 'cp - chdr' is the length of the compressed header.
 	 * 'length - hlen' is the amount of data in the packet.
 	 */
+	ND_TCHECK_SIZE(ip);
 	hlen = IP_HL(ip);
-	hlen += TH_OFF((struct tcphdr *)&((int32_t *)ip)[hlen]);
+	ND_TCHECK_SIZE((const struct tcphdr *)&((const int32_t *)ip)[hlen]);
+	hlen += TH_OFF((const struct tcphdr *)&((const int32_t *)ip)[hlen]);
 	lastlen[dir][lastconn] = length - (hlen << 2);
-	printf(" %d (%ld)", lastlen[dir][lastconn], (long)(cp - chdr));
+	ND_PRINT(" %u (%ld)", lastlen[dir][lastconn], (long)(cp - chdr));
 }

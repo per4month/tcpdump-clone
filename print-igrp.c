@@ -21,110 +21,127 @@
  * Initial contribution from Francis Dupont (francis.dupont@inria.fr)
  */
 
-#ifndef lint
-static const char rcsid[] _U_ =
-    "@(#) $Header: /tcpdump/master/tcpdump/print-igrp.c,v 1.21 2005-04-20 21:01:56 guy Exp $ (LBL)";
-#endif
+/* \summary: Interior Gateway Routing Protocol (IGRP) printer */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
+#include <config.h>
 
-#include <tcpdump-stdinc.h>
+#include "netdissect-stdinc.h"
 
-#include <stdio.h>
+#include "netdissect.h"
+#include "extract.h"
 
-#include "interface.h"
-#include "addrtoname.h"
-#include "igrp.h"
-#include "ip.h"
-#include "extract.h"			/* must come after interface.h */
+/* Cisco IGRP definitions */
+
+/* IGRP Header */
+
+struct igrphdr {
+	nd_uint8_t ig_vop;	/* protocol version number / opcode */
+#define IGRP_V(x)	(((x) & 0xf0) >> 4)
+#define IGRP_OP(x)	((x) & 0x0f)
+	nd_uint8_t ig_ed;	/* edition number */
+	nd_uint16_t ig_as;	/* autonomous system number */
+	nd_uint16_t ig_ni;	/* number of subnet in local net */
+	nd_uint16_t ig_ns;	/* number of networks in AS */
+	nd_uint16_t ig_nx;	/* number of networks outside AS */
+	nd_uint16_t ig_sum;	/* checksum of IGRP header & data */
+};
+
+#define IGRP_UPDATE	1
+#define IGRP_REQUEST	2
+
+/* IGRP routing entry */
+
+struct igrprte {
+	nd_byte igr_net[3];	/* 3 significant octets of IP address */
+	nd_uint24_t igr_dly;	/* delay in tens of microseconds */
+	nd_uint24_t igr_bw;	/* bandwidth in units of 1 kb/s */
+	nd_uint16_t igr_mtu;	/* MTU in octets */
+	nd_uint8_t igr_rel;	/* percent packets successfully tx/rx */
+	nd_uint8_t igr_ld;	/* percent of channel occupied */
+	nd_uint8_t igr_hct;	/* hop count */
+};
+
+#define IGRP_RTE_SIZE	14	/* sizeof() is accurate now */
 
 static void
-igrp_entry_print(register struct igrprte *igr, register int is_interior,
-    register int is_exterior)
+igrp_entry_print(netdissect_options *ndo, const struct igrprte *igr)
 {
-	register u_int delay, bandwidth;
+	u_int delay, bandwidth;
 	u_int metric, mtu;
 
-	if (is_interior)
-		printf(" *.%d.%d.%d", igr->igr_net[0],
-		    igr->igr_net[1], igr->igr_net[2]);
-	else if (is_exterior)
-		printf(" X%d.%d.%d.0", igr->igr_net[0],
-		    igr->igr_net[1], igr->igr_net[2]);
-	else
-		printf(" %d.%d.%d.0", igr->igr_net[0],
-		    igr->igr_net[1], igr->igr_net[2]);
+	delay = GET_BE_U_3(igr->igr_dly);
+	bandwidth = GET_BE_U_3(igr->igr_bw);
+	metric = ND_MIN(bandwidth + delay, 0xffffff);
+	mtu = GET_BE_U_2(igr->igr_mtu);
 
-	delay = EXTRACT_24BITS(igr->igr_dly);
-	bandwidth = EXTRACT_24BITS(igr->igr_bw);
-	metric = bandwidth + delay;
-	if (metric > 0xffffff)
-		metric = 0xffffff;
-	mtu = EXTRACT_16BITS(igr->igr_mtu);
-
-	printf(" d=%d b=%d r=%d l=%d M=%d mtu=%d in %d hops",
+	ND_PRINT(" d=%u b=%u r=%u l=%u M=%u mtu=%u in %u hops",
 	    10 * delay, bandwidth == 0 ? 0 : 10000000 / bandwidth,
-	    igr->igr_rel, igr->igr_ld, metric,
-	    mtu, igr->igr_hct);
+	    GET_U_1(igr->igr_rel), GET_U_1(igr->igr_ld), metric,
+	    mtu, GET_U_1(igr->igr_hct));
 }
 
-static struct tok op2str[] = {
+static const struct tok op2str[] = {
 	{ IGRP_UPDATE,		"update" },
 	{ IGRP_REQUEST,		"request" },
 	{ 0,			NULL }
 };
 
 void
-igrp_print(register const u_char *bp, u_int length, const u_char *bp2 _U_)
+igrp_print(netdissect_options *ndo, const u_char *bp, u_int length)
 {
-	register struct igrphdr *hdr;
-	register u_char *cp;
+	const struct igrphdr *hdr;
+	const u_char *cp;
 	u_int nint, nsys, next;
+	uint16_t cksum;
 
-	hdr = (struct igrphdr *)bp;
-	cp = (u_char *)(hdr + 1);
-        (void)printf("igrp:");
+	ndo->ndo_protocol = "igrp";
+	hdr = (const struct igrphdr *)bp;
+	cp = (const u_char *)(hdr + 1);
+	ND_PRINT("igrp:");
 
 	/* Header */
-	TCHECK(*hdr);
-	nint = EXTRACT_16BITS(&hdr->ig_ni);
-	nsys = EXTRACT_16BITS(&hdr->ig_ns);
-	next = EXTRACT_16BITS(&hdr->ig_nx);
+	nint = GET_BE_U_2(hdr->ig_ni);
+	nsys = GET_BE_U_2(hdr->ig_ns);
+	next = GET_BE_U_2(hdr->ig_nx);
 
-	(void)printf(" %s V%d edit=%d AS=%d (%d/%d/%d)",
-	    tok2str(op2str, "op-#%d", IGRP_OP(hdr->ig_vop)),
-	    IGRP_V(hdr->ig_vop),
-	    hdr->ig_ed,
-	    EXTRACT_16BITS(&hdr->ig_as),
+	ND_PRINT(" %s V%u edit=%u AS=%u (%u/%u/%u)",
+	    tok2str(op2str, "op-#%u", IGRP_OP(GET_U_1(hdr->ig_vop))),
+	    IGRP_V(GET_U_1(hdr->ig_vop)),
+	    GET_U_1(hdr->ig_ed),
+	    GET_BE_U_2(hdr->ig_as),
 	    nint,
 	    nsys,
 	    next);
+	cksum = GET_BE_U_2(hdr->ig_sum);
+	if (ndo->ndo_vflag)
+		ND_PRINT(" checksum=0x%04x", cksum);
 
 	length -= sizeof(*hdr);
 	while (length >= IGRP_RTE_SIZE) {
+		const struct igrprte *igr = (const struct igrprte *)cp;
+		uint8_t net0 = GET_U_1(&igr->igr_net[0]);
+		uint8_t net1 = GET_U_1(&igr->igr_net[1]);
+		uint8_t net2 = GET_U_1(&igr->igr_net[2]);
+
 		if (nint > 0) {
-			TCHECK2(*cp, IGRP_RTE_SIZE);
-			igrp_entry_print((struct igrprte *)cp, 1, 0);
+			ND_PRINT(" *.%u.%u.%u", net0, net1, net2);
+			igrp_entry_print(ndo, igr);
 			--nint;
 		} else if (nsys > 0) {
-			TCHECK2(*cp, IGRP_RTE_SIZE);
-			igrp_entry_print((struct igrprte *)cp, 0, 0);
+			ND_PRINT(" %u.%u.%u.0", net0, net1, net2);
+			igrp_entry_print(ndo, igr);
 			--nsys;
 		} else if (next > 0) {
-			TCHECK2(*cp, IGRP_RTE_SIZE);
-			igrp_entry_print((struct igrprte *)cp, 0, 1);
+			ND_PRINT(" X%u.%u.%u.0", net0, net1, net2);
+			igrp_entry_print(ndo, igr);
 			--next;
 		} else {
-			(void)printf(" [extra bytes %d]", length);
+			ND_PRINT(" [extra bytes %u]", length);
 			break;
 		}
 		cp += IGRP_RTE_SIZE;
 		length -= IGRP_RTE_SIZE;
 	}
-	if (nint == 0 && nsys == 0 && next == 0)
-		return;
-trunc:
-	fputs(" [|igrp]", stdout);
+	if (nint || nsys || next || length)
+		nd_print_invalid(ndo);
 }

@@ -27,23 +27,17 @@
  * SUCH DAMAGE.
  */
 
-/* Cisco Hot Standby Router Protocol (HSRP). */
+/* \summary: Cisco Hot Standby Router Protocol (HSRP) printer */
 
-#ifndef lint
-static const char rcsid[] _U_ =
-    "@(#) $Header: /tcpdump/master/tcpdump/print-hsrp.c,v 1.10 2005-05-06 07:56:52 guy Exp $";
-#endif
+/* specification: RFC 2281 for version 1 */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
+#include <config.h>
 
-#include <tcpdump-stdinc.h>
+#include "netdissect-stdinc.h"
 
-#include <stdio.h>
-
-#include "interface.h"
+#include "netdissect.h"
 #include "addrtoname.h"
+#include "extract.h"
 
 /* HSRP op code types. */
 static const char *op_code_str[] = {
@@ -53,7 +47,7 @@ static const char *op_code_str[] = {
 };
 
 /* HSRP states and associated names. */
-static struct tok states[] = {
+static const struct tok states[] = {
 	{  0, "initial" },
 	{  1, "learn" },
 	{  2, "listen" },
@@ -85,56 +79,53 @@ static struct tok states[] = {
 
 /* HSRP protocol header. */
 struct hsrp {
-	u_int8_t	hsrp_version;
-	u_int8_t	hsrp_op_code;
-	u_int8_t	hsrp_state;
-	u_int8_t	hsrp_hellotime;
-	u_int8_t	hsrp_holdtime;
-	u_int8_t	hsrp_priority;
-	u_int8_t	hsrp_group;
-	u_int8_t	hsrp_reserved;
-	u_int8_t	hsrp_authdata[HSRP_AUTH_SIZE];
-	struct in_addr	hsrp_virtaddr;
+	nd_uint8_t	hsrp_version;
+	nd_uint8_t	hsrp_op_code;
+	nd_uint8_t	hsrp_state;
+	nd_uint8_t	hsrp_hellotime;
+	nd_uint8_t	hsrp_holdtime;
+	nd_uint8_t	hsrp_priority;
+	nd_uint8_t	hsrp_group;
+	nd_uint8_t	hsrp_reserved;
+	nd_byte		hsrp_authdata[HSRP_AUTH_SIZE];
+	nd_ipv4		hsrp_virtaddr;
 };
 
 void
-hsrp_print(register const u_int8_t *bp, register u_int len)
+hsrp_print(netdissect_options *ndo, const u_char *bp, u_int len)
 {
-	struct hsrp *hp = (struct hsrp *) bp;
+	const struct hsrp *hp = (const struct hsrp *) bp;
+	uint8_t version;
 
-	TCHECK(hp->hsrp_version);
-	printf("HSRPv%d", hp->hsrp_version);
-	if (hp->hsrp_version != 0)
+	ndo->ndo_protocol = "hsrp";
+	version = GET_U_1(hp->hsrp_version);
+	ND_PRINT("HSRPv%u", version);
+	if (version != 0)
 		return;
-	TCHECK(hp->hsrp_op_code);
-	printf("-");
-	printf("%s ", tok2strary(op_code_str, "unknown (%d)", hp->hsrp_op_code));
-	printf("%d: ", len);
-	TCHECK(hp->hsrp_state);
-	printf("state=%s ", tok2str(states, "Unknown (%d)", hp->hsrp_state));
-	TCHECK(hp->hsrp_group);
-	printf("group=%d ", hp->hsrp_group);
-	TCHECK(hp->hsrp_reserved);
-	if (hp->hsrp_reserved != 0) {
-		printf("[reserved=%d!] ", hp->hsrp_reserved);
+	ND_PRINT("-");
+	ND_PRINT("%s ",
+		 tok2strary(op_code_str, "unknown (%u)", GET_U_1(hp->hsrp_op_code)));
+	ND_PRINT("%u: ", len);
+	ND_PRINT("state=%s ",
+		 tok2str(states, "Unknown (%u)", GET_U_1(hp->hsrp_state)));
+	ND_PRINT("group=%u ", GET_U_1(hp->hsrp_group));
+	if (GET_U_1(hp->hsrp_reserved) != 0) {
+		ND_PRINT("[reserved=%u!] ", GET_U_1(hp->hsrp_reserved));
 	}
-	TCHECK(hp->hsrp_virtaddr);
-	printf("addr=%s", ipaddr_string(&hp->hsrp_virtaddr));
-	if (vflag) {
-		printf(" hellotime=");
-		relts_print(hp->hsrp_hellotime);
-		printf(" holdtime=");
-		relts_print(hp->hsrp_holdtime);
-		printf(" priority=%d", hp->hsrp_priority);
-		printf(" auth=\"");
-		if (fn_printn(hp->hsrp_authdata, sizeof(hp->hsrp_authdata),
-		    snapend)) {
-			printf("\"");
-			goto trunc;
-		}
-		printf("\"");
+	ND_PRINT("addr=%s", GET_IPADDR_STRING(hp->hsrp_virtaddr));
+	if (ndo->ndo_vflag) {
+		ND_PRINT(" hellotime=");
+		unsigned_relts_print(ndo, GET_U_1(hp->hsrp_hellotime));
+		ND_PRINT(" holdtime=");
+		unsigned_relts_print(ndo, GET_U_1(hp->hsrp_holdtime));
+		ND_PRINT(" priority=%u", GET_U_1(hp->hsrp_priority));
+		ND_PRINT(" auth=\"");
+		/*
+		 * RFC 2281 Section 5.1 does not specify the encoding of
+		 * Authentication Data explicitly, but zero padding can be
+		 * inferred from the "recommended default value".
+		 */
+		nd_printjnp(ndo, hp->hsrp_authdata, HSRP_AUTH_SIZE);
+		ND_PRINT("\"");
 	}
-	return;
-trunc:
-	printf("[|hsrp]");
 }

@@ -17,9 +17,14 @@
  * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR IMPLIED
  * WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED WARRANTIES OF
  * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
- *
- * @(#) $Header: /tcpdump/master/tcpdump/ethertype.h,v 1.30 2008-02-06 10:47:53 guy Exp $ (LBL)
  */
+
+/*
+ * Maximum length of the length field in an Ethernet header; any value
+ * greater than this is not a length value, so it's either an Ethernet
+ * type or an invalid value.
+ */
+#define	MAX_ETHERNET_LENGTH_VAL	1500
 
 /*
  * Ethernet types.
@@ -108,8 +113,8 @@
 #endif
 
 /* see:
-        http://en.wikipedia.org/wiki/IEEE_802.1Q
-    and http://en.wikipedia.org/wiki/QinQ
+        https://en.wikipedia.org/wiki/IEEE_802.1Q
+    and https://en.wikipedia.org/wiki/QinQ
 */
 #ifndef	ETHERTYPE_8021Q9100
 #define	ETHERTYPE_8021Q9100	0x9100
@@ -119,6 +124,9 @@
 #endif
 #ifndef	ETHERTYPE_8021QinQ
 #define	ETHERTYPE_8021QinQ      0x88a8
+#endif
+#ifndef ETHERTYPE_MACSEC
+#define ETHERTYPE_MACSEC	0x88e5
 #endif
 #ifndef ETHERTYPE_IPX
 #define ETHERTYPE_IPX		0x8137
@@ -147,11 +155,17 @@
 #ifndef ETHERTYPE_PPPOES
 #define ETHERTYPE_PPPOES	0x8864
 #endif
+#ifndef ETHERTYPE_NSH
+#define ETHERTYPE_NSH		0x894F
+#endif
 #ifndef ETHERTYPE_PPPOED2
 #define ETHERTYPE_PPPOED2	0x3c12
 #endif
 #ifndef ETHERTYPE_PPPOES2
 #define ETHERTYPE_PPPOES2	0x3c13
+#endif
+#ifndef ETHERTYPE_MS_NLB_HB
+#define ETHERTYPE_MS_NLB_HB	0x886f /* MS Network Load Balancing Heartbeat */
 #endif
 #ifndef ETHERTYPE_JUMBO
 #define ETHERTYPE_JUMBO         0x8870
@@ -160,16 +174,22 @@
 #define ETHERTYPE_LLDP          0x88cc
 #endif
 #ifndef ETHERTYPE_EAPOL
-#define ETHERTYPE_EAPOL  	0x888e
+#define ETHERTYPE_EAPOL		0x888e
 #endif
-#ifndef ETHERTYPE_RRCP
-#define ETHERTYPE_RRCP  	0x8899
+#ifndef ETHERTYPE_REALTEK
+#define ETHERTYPE_REALTEK	0x8899	/* Realtek layer 2 protocols and switch tags */
+#endif
+#ifndef ETHERTYPE_AOE
+#define ETHERTYPE_AOE		0x88a2
+#endif
+#ifndef ETHERTYPE_PTP
+#define ETHERTYPE_PTP		0x88f7
 #endif
 #ifndef	ETHERTYPE_LOOPBACK
 #define	ETHERTYPE_LOOPBACK	0x9000
 #endif
 #ifndef	ETHERTYPE_VMAN
-#define	ETHERTYPE_VMAN	        0x9100 /* Extreme VMAN Protocol */ 
+#define	ETHERTYPE_VMAN	        0x9100 /* Extreme VMAN Protocol */
 #endif
 #ifndef	ETHERTYPE_CFM_OLD
 #define	ETHERTYPE_CFM_OLD       0xabcd /* 802.1ag depreciated */
@@ -177,8 +197,23 @@
 #ifndef	ETHERTYPE_CFM
 #define	ETHERTYPE_CFM           0x8902 /* 802.1ag */
 #endif
+#ifndef	ETHERTYPE_IEEE1905_1
+#define	ETHERTYPE_IEEE1905_1    0x893a /* IEEE 1905.1 */
+#endif
 #ifndef	ETHERTYPE_ISO
 #define	ETHERTYPE_ISO           0xfefe  /* nonstandard - used in Cisco HDLC encapsulation */
+#endif
+#ifndef	ETHERTYPE_CALM_FAST
+#define	ETHERTYPE_CALM_FAST     0x1111  /* ISO CALM FAST */
+#endif
+#ifndef	ETHERTYPE_GEONET_OLD
+#define	ETHERTYPE_GEONET_OLD    0x0707  /* ETSI GeoNetworking (before Jan 2013) */
+#endif
+#ifndef	ETHERTYPE_GEONET
+#define	ETHERTYPE_GEONET        0x8947  /* ETSI GeoNetworking (Official IEEE registration from Jan 2013) */
+#endif
+#ifndef	ETHERTYPE_ARISTA
+#define	ETHERTYPE_ARISTA        0xd28b /*  Arista Networks vendor specific EtherType */
 #endif
 
 extern const struct tok ethertype_values[];

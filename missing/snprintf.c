@@ -31,16 +31,7 @@
  * SUCH DAMAGE.
  */
 
-/* $Id: snprintf.c,v 1.8 2003-11-16 09:36:51 guy Exp $ */
-
-#ifdef HAVE_CONFIG_H
 #include <config.h>
-#endif
-
-#ifndef lint
-static const char rcsid[] _U_ =
-     "@(#) $Header: /tcpdump/master/tcpdump/missing/snprintf.c,v 1.8 2003-11-16 09:36:51 guy Exp $";
-#endif
 
 #include <stdio.h>
 #include <stdarg.h>
@@ -49,7 +40,7 @@ static const char rcsid[] _U_ =
 #include <ctype.h>
 #include <sys/types.h>
 
-#include <interface.h>
+#include "netdissect.h"
 
 enum format_flags {
     minus_flag     =  1,
@@ -73,25 +64,6 @@ struct state {
   int (*reserve)(struct state *, size_t);
   /* XXX - methods */
 };
-
-#ifndef HAVE_VSNPRINTF
-static int
-sn_reserve (struct state *state, size_t n)
-{
-  return state->s + n > state->theend;
-}
-
-static int
-sn_append_char (struct state *state, unsigned char c)
-{
-  if (sn_reserve (state, 1)) {
-    return 1;
-  } else {
-    *state->s++ = c;
-    return 0;
-  }
-}
-#endif
 
 #if 0
 static int
@@ -437,7 +409,7 @@ xyzprintf (struct state *state, const char *char_format, va_list ap)
 	break;
       }
       case 'n' : {
-	int *arg = va_arg(ap, int*);
+	int *arg = va_arg(ap, int *);
 	*arg = state->s - state->str;
 	break;
       }
@@ -460,37 +432,6 @@ xyzprintf (struct state *state, const char *char_format, va_list ap)
   }
   return 0;
 }
-
-#ifndef HAVE_SNPRINTF
-int
-snprintf (char *str, size_t sz, const char *format, ...)
-{
-  va_list args;
-  int ret;
-
-  va_start(args, format);
-  ret = vsnprintf (str, sz, format, args);
-
-#ifdef PARANOIA
-  {
-    int ret2;
-    char *tmp;
-
-    tmp = malloc (sz);
-    if (tmp == NULL)
-      abort ();
-
-    ret2 = vsprintf (tmp, format, args);
-    if (ret != ret2 || strcmp(str, tmp))
-      abort ();
-    free (tmp);
-  }
-#endif
-
-  va_end(args);
-  return ret;
-}
-#endif
 
 #if 0
 #ifndef HAVE_ASPRINTF
@@ -523,48 +464,9 @@ asprintf (char **ret, const char *format, ...)
 }
 #endif
 
-#ifndef HAVE_ASNPRINTF
-int
-asnprintf (char **ret, size_t max_sz, const char *format, ...)
-{
-  va_list args;
-  int val;
-
-  va_start(args, format);
-  val = vasnprintf (ret, max_sz, format, args);
-
-#ifdef PARANOIA
-  {
-    int ret2;
-    char *tmp;
-    tmp = malloc (val + 1);
-    if (tmp == NULL)
-      abort ();
-
-    ret2 = vsprintf (tmp, format, args);
-    if (val != ret2 || strcmp(*ret, tmp))
-      abort ();
-    free (tmp);
-  }
-#endif
-
-  va_end(args);
-  return val;
-}
-#endif
-
-#ifndef HAVE_VASPRINTF
-int
-vasprintf (char **ret, const char *format, va_list args)
-{
-  return vasnprintf (ret, 0, format, args);
-}
-#endif
-
-
 #ifndef HAVE_VASNPRINTF
 int
-vasnprintf (char **ret, size_t max_sz, const char *format, va_list args)
+nd_vasnprintf (char **ret, size_t max_sz, const char *format, va_list args)
 {
   int st;
   size_t len;
@@ -604,29 +506,3 @@ vasnprintf (char **ret, size_t max_sz, const char *format, va_list args)
 }
 #endif
 #endif
-
-#ifndef HAVE_VSNPRINTF
-int
-vsnprintf (char *str, size_t sz, const char *format, va_list args)
-{
-  struct state state;
-  int ret;
-  unsigned char *ustr = (unsigned char *)str;
-
-  state.max_sz = 0;
-  state.sz     = sz;
-  state.str    = ustr;
-  state.s      = ustr;
-  state.theend = ustr + sz - 1;
-  state.append_char = sn_append_char;
-  state.reserve     = sn_reserve;
-
-  ret = xyzprintf (&state, format, args);
-  *state.s = '\0';
-  if (ret)
-    return sz;
-  else
-    return state.s - state.str;
-}
-#endif
-

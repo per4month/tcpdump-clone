@@ -19,23 +19,16 @@
  * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
+/* \summary: PPP Van Jacobson compression printer */
 
-#ifndef lint
-static const char rcsid[] _U_ =
-    "@(#) $Header: /tcpdump/master/tcpdump/print-vjc.c,v 1.15 2004-03-25 03:31:17 mcr Exp $ (LBL)";
-#endif
+/* specification: RFC 1144 */
 
-#include <tcpdump-stdinc.h>
+#include <config.h>
 
-#include <pcap.h>
-#include <stdio.h>
+#include "netdissect-stdinc.h"
 
-#include "interface.h"
-#include "addrtoname.h"
-
+#include "netdissect.h"
+#include "extract.h"
 #include "slcompress.h"
 #include "ppp.h"
 
@@ -80,40 +73,48 @@ static const char rcsid[] _U_ =
  * We therefore leave "proto" - which is the PPP protocol type - in place,
  * *not* marked as unused, for now, so that GCC warnings about the
  * unused argument remind us that we should fix this some day.
+ *
+ * XXX - also, it fetches the TCP checksum field in COMPRESSED_TCP
+ * packets with GET_HE_U_2, rather than with GET_BE_U_2(); RFC 1144 says
+ * it's "the unmodified TCP checksum", which would imply that it's
+ * big-endian, but perhaps, on the platform where this was developed,
+ * the packets were munged by the networking stack before being handed
+ * to the packet capture mechanism.
  */
 int
-vjc_print(register const char *bp, u_short proto _U_)
+vjc_print(netdissect_options *ndo, const u_char *bp, u_short proto _U_)
 {
 	int i;
 
-	switch (bp[0] & 0xf0) {
+	ndo->ndo_protocol = "vjc";
+	switch (GET_U_1(bp) & 0xf0) {
 	case TYPE_IP:
-		if (eflag)
-			printf("(vjc type=IP) ");
+		if (ndo->ndo_eflag)
+			ND_PRINT("(vjc type=IP) ");
 		return PPP_IP;
 	case TYPE_UNCOMPRESSED_TCP:
-		if (eflag)
-			printf("(vjc type=raw TCP) ");
+		if (ndo->ndo_eflag)
+			ND_PRINT("(vjc type=raw TCP) ");
 		return PPP_IP;
 	case TYPE_COMPRESSED_TCP:
-		if (eflag)
-			printf("(vjc type=compressed TCP) ");
+		if (ndo->ndo_eflag)
+			ND_PRINT("(vjc type=compressed TCP) ");
 		for (i = 0; i < 8; i++) {
-			if (bp[1] & (0x80 >> i))
-				printf("%c", "?CI?SAWU"[i]);
+			if (GET_U_1(bp + 1) & (0x80 >> i))
+				ND_PRINT("%c", "?CI?SAWU"[i]);
 		}
-		if (bp[1])
-			printf(" ");
-		printf("C=0x%02x ", bp[2]);
-		printf("sum=0x%04x ", *(u_short *)&bp[3]);
+		if (GET_U_1(bp + 1))
+			ND_PRINT(" ");
+		ND_PRINT("C=0x%02x ", GET_U_1(bp + 2));
+		ND_PRINT("sum=0x%04x ", GET_HE_U_2(bp + 3));
 		return -1;
 	case TYPE_ERROR:
-		if (eflag)
-			printf("(vjc type=error) ");
+		if (ndo->ndo_eflag)
+			ND_PRINT("(vjc type=error) ");
 		return -1;
 	default:
-		if (eflag)
-			printf("(vjc type=0x%02x) ", bp[0] & 0xf0);
+		if (ndo->ndo_eflag)
+			ND_PRINT("(vjc type=0x%02x) ", GET_U_1(bp) & 0xf0);
 		return -1;
 	}
 }

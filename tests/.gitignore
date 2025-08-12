@@ -2,4 +2,4 @@
 .passed
 DIFF
 NEW
-lmp.new
+*.out.raw.stderr

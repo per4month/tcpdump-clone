@@ -1,4 +1,4 @@
-/* 
+/*
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that: (1) source code
  * distributions retain the above copyright notice and this paragraph
@@ -10,20 +10,13 @@
  * LIMITATION, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
  * FOR A PARTICULAR PURPOSE.
  *
- * Original code by Hannes Gredler (hannes@juniper.net)
+ * Original code by Hannes Gredler (hannes@gredler.at)
  */
 
-#ifndef lint
-static const char rcsid[] _U_ =
-    "@(#) $Header: /tcpdump/master/tcpdump/oui.c,v 1.9 2008-01-09 09:40:47 hannes Exp $ (LBL)";
-#endif
+#include <config.h>
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
-#include <tcpdump-stdinc.h>
-#include "interface.h"
+#include "netdissect-stdinc.h"
+#include "netdissect.h"
 #include "oui.h"
 
 /* FIXME complete OUI list using a script */
@@ -31,6 +24,7 @@ static const char rcsid[] _U_ =
 const struct tok oui_values[] = {
     { OUI_ENCAP_ETHER, "Ethernet" },
     { OUI_CISCO, "Cisco" },
+    { OUI_IANA, "IANA" },
     { OUI_NORTEL, "Nortel Networks SONMP" },
     { OUI_CISCO_90, "Cisco bridged" },
     { OUI_RFC2684, "Ethernet bridged" },
@@ -43,6 +37,18 @@ const struct tok oui_values[] = {
     { OUI_IEEE_8023_PRIVATE, "IEEE 802.3 Private"},
     { OUI_TIA, "ANSI/TIA"},
     { OUI_DCBX, "DCBX"},
+    { OUI_NICIRA, "Nicira Networks" },
+    { OUI_BSN, "Big Switch Networks" },
+    { OUI_VELLO, "Vello Systems" },
+    { OUI_HP2, "HP" },
+    { OUI_HPLABS, "HP-Labs" },
+    { OUI_INFOBLOX, "Infoblox Inc" },
+    { OUI_ONLAB, "Open Networking Lab" },
+    { OUI_FREESCALE, "Freescale" },
+    { OUI_NETRONOME, "Netronome" },
+    { OUI_BROADCOM, "Broadcom" },
+    { OUI_PMC_SIERRA, "PMC-Sierra" },
+    { OUI_ERICSSON, "Ericsson" },
     { 0, NULL }
 };
 
@@ -63,6 +69,8 @@ const struct tok smi_values[] = {
     { SMI_HEWLETT_PACKARD,      "Hewlett Packard"},
     { SMI_SUN_MICROSYSTEMS,     "Sun Microsystems"},
     { SMI_MERIT,                "Merit"},
+    { SMI_AT_AND_T,             "AT&T"},
+    { SMI_MOTOROLA,             "Motorola"},
     { SMI_SHIVA,                "Shiva"},
     { SMI_ERICSSON,             "Ericsson AB"},
     { SMI_CISCO_VPN5000,        "Cisco VPN 5000"},
@@ -76,24 +84,46 @@ const struct tok smi_values[] = {
     { SMI_REDBACK,              "Redback"},
     { SMI_JUNIPER,              "Juniper Networks"},
     { SMI_APTIS,                "Aptis"},
+    { SMI_DT_AG,                "Deutsche Telekom AG"},
+    { SMI_IXIA,                 "Ixia Communications"},
     { SMI_CISCO_VPN3000,        "Cisco VPN 3000"},
     { SMI_COSINE,               "CoSine Communications"},
     { SMI_NETSCREEN,            "Netscreen"},
     { SMI_SHASTA,               "Shasta"},
     { SMI_NOMADIX,              "Nomadix"},
+    { SMI_T_MOBILE,             "T-Mobile"},
+    { SMI_BROADBAND_FORUM,      "The Broadband Forum"},
+    { SMI_ZTE,                  "ZTE"},
     { SMI_SIEMENS,              "Siemens"},
     { SMI_CABLELABS,            "CableLabs"},
     { SMI_UNISPHERE,            "Unisphere Networks"},
     { SMI_CISCO_BBSM,           "Cisco BBSM"},
     { SMI_THE3GPP2,             "3rd Generation Partnership Project 2 (3GPP2)"},
+    { SMI_SKT_TELECOM,          "SK Telecom"},
     { SMI_IP_UNPLUGGED,         "ipUnplugged"},
     { SMI_ISSANNI,              "Issanni Communications"},
+    { SMI_NETSCALER,            "Netscaler"},
+    { SMI_DE_TE_MOBIL,          "T-Mobile"},
     { SMI_QUINTUM,              "Quintum"},
     { SMI_INTERLINK,            "Interlink"},
+    { SMI_CNCTC,                "CNCTC"},
+    { SMI_STARENT_NETWORKS,     "Starent Networks"},
     { SMI_COLUBRIS,             "Colubris"},
-    { SMI_COLUMBIA_UNIVERSITY,  "Columbia University"},
     { SMI_THE3GPP,              "3GPP"},
     { SMI_GEMTEK_SYSTEMS,       "Gemtek-Systems"},
+    { SMI_BARRACUDA,            "Barracuda Networks"},
+    { SMI_ERICSSON_PKT_CORE,    "Ericsson AB - Packet Core Networks"},
+    { SMI_DACOM,                "dacom"},
+    { SMI_COLUMBIA_UNIVERSITY,  "Columbia University"},
+    { SMI_FORTINET,             "Fortinet"},
+    { SMI_VERIZON,              "Verizon Wireless"},
+    { SMI_PLIXER,               "Plixer"},
     { SMI_WIFI_ALLIANCE,        "Wi-Fi Alliance"},
+    { SMI_T_SYSTEMS_NOVA,       "T-Systems Nova"},
+    { SMI_CHINATELECOM_GUANZHOU, "China Telecom - Guangzhou Research Institute"},
+    { SMI_GIGAMON,              "Gigamon Systems"},
+    { SMI_CACE,                 "CACE Technologies"},
+    { SMI_NTOP,                 "ntop"},
+    { SMI_ERICSSON_CANADA_INC,  "Ericsson Canada"},
     { 0, NULL}
 };

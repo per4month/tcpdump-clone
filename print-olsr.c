@@ -13,25 +13,21 @@
  * LIMITATION, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
  * FOR A PARTICULAR PURPOSE.
  *
- * Optimized Link State Protocl (OLSR) as per rfc3626
- *
- * Original code by Hannes Gredler <hannes@juniper.net>
+ * Original code by Hannes Gredler <hannes@gredler.at>
  * IPv6 additions by Florian Forster <octo at verplant.org>
  */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
+/* \summary: Optimized Link State Routing Protocol (OLSR) printer */
 
-#include <tcpdump-stdinc.h>
+/* specification: RFC 3626 */
 
-#include <stdio.h>
-#include <string.h>
+#include <config.h>
 
-#include "interface.h"
+#include "netdissect-stdinc.h"
+
+#include "netdissect.h"
 #include "addrtoname.h"
 #include "extract.h"
-#include "ip.h"
 
 /*
  * RFC 3626 common header
@@ -65,8 +61,8 @@
  */
 
 struct olsr_common {
-    u_int8_t packet_len[2];
-    u_int8_t packet_seq[2];
+    nd_uint16_t packet_len;
+    nd_uint16_t packet_seq;
 };
 
 #define OLSR_HELLO_MSG         1 /* rfc3626 */
@@ -78,7 +74,7 @@ struct olsr_common {
 #define OLSR_HELLO_LQ_MSG    201 /* LQ extensions olsr.org */
 #define OLSR_TC_LQ_MSG       202 /* LQ extensions olsr.org */
 
-static struct tok olsr_msg_values[] = {
+static const struct tok olsr_msg_values[] = {
     { OLSR_HELLO_MSG, "Hello" },
     { OLSR_TC_MSG, "TC" },
     { OLSR_MID_MSG, "MID" },
@@ -91,57 +87,77 @@ static struct tok olsr_msg_values[] = {
 };
 
 struct olsr_msg4 {
-    u_int8_t msg_type;
-    u_int8_t vtime;
-    u_int8_t msg_len[2];
-    u_int8_t originator[4];
-    u_int8_t ttl;
-    u_int8_t hopcount;
-    u_int8_t msg_seq[2];
+    nd_uint8_t  msg_type;
+    nd_uint8_t  vtime;
+    nd_uint16_t msg_len;
+    nd_ipv4     originator;
+    nd_uint8_t  ttl;
+    nd_uint8_t  hopcount;
+    nd_uint16_t msg_seq;
 };
 
 struct olsr_msg6 {
-    u_int8_t msg_type;
-    u_int8_t vtime;
-    u_int8_t msg_len[2];
-    u_int8_t originator[16];
-    u_int8_t ttl;
-    u_int8_t hopcount;
-    u_int8_t msg_seq[2];
+    nd_uint8_t  msg_type;
+    nd_uint8_t  vtime;
+    nd_uint16_t msg_len;
+    nd_ipv6     originator;
+    nd_uint8_t  ttl;
+    nd_uint8_t  hopcount;
+    nd_uint16_t msg_seq;
 };
 
 struct olsr_hello {
-    u_int8_t res[2];
-    u_int8_t htime;
-    u_int8_t will;
+    nd_byte     res[2];
+    nd_uint8_t  htime;
+    nd_uint8_t  will;
 };
 
 struct olsr_hello_link {
-    u_int8_t link_code;
-    u_int8_t res;
-    u_int8_t len[2];
+    nd_uint8_t  link_code;
+    nd_byte     res;
+    nd_uint16_t len;
 };
 
 struct olsr_tc {
-    u_int8_t ans_seq[2];
-    u_int8_t res[2];
+    nd_uint16_t ans_seq;
+    nd_byte     res[2];
 };
 
 struct olsr_hna4 {
-    u_int8_t network[4];
-    u_int8_t mask[4];
+    nd_ipv4 network;
+    nd_ipv4 mask;
 };
 
 struct olsr_hna6 {
-    u_int8_t network[16];
-    u_int8_t mask[16];
+    nd_ipv6 network;
+    nd_ipv6 mask;
+};
+
+
+/** gateway HNA flags */
+enum gateway_hna_flags {
+  GW_HNA_FLAG_LINKSPEED   = 1 << 0,
+  GW_HNA_FLAG_IPV4        = 1 << 1,
+  GW_HNA_FLAG_IPV4_NAT    = 1 << 2,
+  GW_HNA_FLAG_IPV6        = 1 << 3,
+  GW_HNA_FLAG_IPV6PREFIX  = 1 << 4
+};
+
+/** gateway HNA field byte offsets in the netmask field of the HNA */
+enum gateway_hna_fields {
+  GW_HNA_PAD              = 0,
+  GW_HNA_FLAGS            = 1,
+  GW_HNA_UPLINK           = 2,
+  GW_HNA_DOWNLINK         = 3,
+  GW_HNA_V6PREFIXLEN      = 4,
+  GW_HNA_V6PREFIX         = 5
 };
 
 
 #define OLSR_EXTRACT_LINK_TYPE(link_code) (link_code & 0x3)
 #define OLSR_EXTRACT_NEIGHBOR_TYPE(link_code) (link_code >> 2)
 
-static struct tok olsr_link_type_values[] = {
+static const struct tok olsr_link_type_values[] = {
     { 0, "Unspecified" },
     { 1, "Asymmetric" },
     { 2, "Symmetric" },
@@ -149,7 +165,7 @@ static struct tok olsr_link_type_values[] = {
     { 0, NULL}
 };
 
-static struct tok olsr_neighbor_type_values[] = {
+static const struct tok olsr_neighbor_type_values[] = {
     { 0, "Not-Neighbor" },
     { 1, "Symmetric" },
     { 2, "Symmetric-MPR" },
@@ -157,18 +173,50 @@ static struct tok olsr_neighbor_type_values[] = {
 };
 
 struct olsr_lq_neighbor4 {
-    u_int8_t neighbor[4];
-    u_int8_t link_quality;
-    u_int8_t neighbor_link_quality;
-    u_int8_t res[2];
+    nd_ipv4     neighbor;
+    nd_uint8_t  link_quality;
+    nd_uint8_t  neighbor_link_quality;
+    nd_byte     res[2];
 };
 
 struct olsr_lq_neighbor6 {
-    u_int8_t neighbor[16];
-    u_int8_t link_quality;
-    u_int8_t neighbor_link_quality;
-    u_int8_t res[2];
+    nd_ipv6     neighbor;
+    nd_uint8_t  link_quality;
+    nd_uint8_t  neighbor_link_quality;
+    nd_byte     res[2];
 };
+
+#define MAX_SMARTGW_SPEED    320000000
+
+/**
+ * Convert an encoded 1 byte transport value (5 bits mantissa, 3 bits exponent)
+ * to an uplink/downlink speed value
+ *
+ * @param value the encoded 1 byte transport value
+ * @return the uplink/downlink speed value (in kbit/s)
+ */
+static uint32_t deserialize_gw_speed(uint8_t value) {
+  uint32_t speed;
+  uint32_t exp;
+
+  if (!value) {
+    return 0;
+  }
+
+  if (value == UINT8_MAX) {
+    /* maximum value: also return maximum value */
+    return MAX_SMARTGW_SPEED;
+  }
+
+  speed = (value >> 3) + 1;
+  exp = value & 7;
+
+  while (exp != 0) {
+    speed *= 10;
+    exp--;
+  }
+  return speed;
+}
 
 /*
  * macro to convert the 8-bit mantissa/exponent to a double float
@@ -181,74 +229,83 @@ struct olsr_lq_neighbor6 {
 /*
  * print a neighbor list with LQ extensions.
  */
-static void
-olsr_print_lq_neighbor4 (const u_char *msg_data, u_int hello_len)
+static int
+olsr_print_lq_neighbor4(netdissect_options *ndo,
+                        const u_char *msg_data, u_int hello_len)
 {
-    struct olsr_lq_neighbor4 *lq_neighbor;
+    const struct olsr_lq_neighbor4 *lq_neighbor;
 
     while (hello_len >= sizeof(struct olsr_lq_neighbor4)) {
 
-        lq_neighbor = (struct olsr_lq_neighbor4 *)msg_data;
+        lq_neighbor = (const struct olsr_lq_neighbor4 *)msg_data;
+        ND_TCHECK_SIZE(lq_neighbor);
 
-        printf("\n\t      neighbor %s, link-quality %.2lf%%"
-               ", neighbor-link-quality %.2lf%%",
-               ipaddr_string(lq_neighbor->neighbor),
-               ((double)lq_neighbor->link_quality/2.55),
-               ((double)lq_neighbor->neighbor_link_quality/2.55));
+        ND_PRINT("\n\t      neighbor %s, link-quality %.2f%%"
+               ", neighbor-link-quality %.2f%%",
+               GET_IPADDR_STRING(lq_neighbor->neighbor),
+               ((double) GET_U_1(lq_neighbor->link_quality)/2.55),
+               ((double) GET_U_1(lq_neighbor->neighbor_link_quality)/2.55));
 
         msg_data += sizeof(struct olsr_lq_neighbor4);
         hello_len -= sizeof(struct olsr_lq_neighbor4);
     }
+    return (0);
+trunc:
+    return -1;
 }
 
-#if INET6
-static void
-olsr_print_lq_neighbor6 (const u_char *msg_data, u_int hello_len)
+static int
+olsr_print_lq_neighbor6(netdissect_options *ndo,
+                        const u_char *msg_data, u_int hello_len)
 {
-    struct olsr_lq_neighbor6 *lq_neighbor;
+    const struct olsr_lq_neighbor6 *lq_neighbor;
 
     while (hello_len >= sizeof(struct olsr_lq_neighbor6)) {
 
-        lq_neighbor = (struct olsr_lq_neighbor6 *)msg_data;
+        lq_neighbor = (const struct olsr_lq_neighbor6 *)msg_data;
+        ND_TCHECK_SIZE(lq_neighbor);
 
-        printf("\n\t      neighbor %s, link-quality %.2lf%%"
-               ", neighbor-link-quality %.2lf%%",
-               ip6addr_string(lq_neighbor->neighbor),
-               ((double)lq_neighbor->link_quality/2.55),
-               ((double)lq_neighbor->neighbor_link_quality/2.55));
+        ND_PRINT("\n\t      neighbor %s, link-quality %.2f%%"
+               ", neighbor-link-quality %.2f%%",
+               GET_IP6ADDR_STRING(lq_neighbor->neighbor),
+               ((double) GET_U_1(lq_neighbor->link_quality)/2.55),
+               ((double) GET_U_1(lq_neighbor->neighbor_link_quality)/2.55));
 
         msg_data += sizeof(struct olsr_lq_neighbor6);
         hello_len -= sizeof(struct olsr_lq_neighbor6);
     }
+    return (0);
+trunc:
+    return -1;
 }
-#endif /* INET6 */
 
 /*
  * print a neighbor list.
  */
-static void
-olsr_print_neighbor (const u_char *msg_data, u_int hello_len)
+static int
+olsr_print_neighbor(netdissect_options *ndo,
+                    const u_char *msg_data, u_int hello_len)
 {
     int neighbor;
 
-    printf("\n\t      neighbor\n\t\t");
+    ND_PRINT("\n\t      neighbor\n\t\t");
     neighbor = 1;
 
-    while (hello_len >= sizeof(struct in_addr)) {
-
+    while (hello_len >= sizeof(nd_ipv4)) {
         /* print 4 neighbors per line */
-
-        printf("%s%s", ipaddr_string(msg_data),
+        ND_PRINT("%s%s", GET_IPADDR_STRING(msg_data),
                neighbor % 4 == 0 ? "\n\t\t" : " ");
 
-        msg_data += sizeof(struct in_addr);
-        hello_len -= sizeof(struct in_addr);
+        msg_data += sizeof(nd_ipv4);
+        hello_len -= sizeof(nd_ipv4);
     }
+    return (0);
 }
 
 
 void
-olsr_print (const u_char *pptr, u_int length, int is_ipv6)
+olsr_print(netdissect_options *ndo,
+           const u_char *pptr, u_int length, int is_ipv6)
 {
     union {
         const struct olsr_common *common;
@@ -261,27 +318,28 @@ olsr_print (const u_char *pptr, u_int length, int is_ipv6)
     } ptr;
 
     u_int msg_type, msg_len, msg_tlen, hello_len;
-    u_int16_t name_entry_type, name_entry_len;
+    uint16_t name_entry_type, name_entry_len;
     u_int name_entry_padding;
-    u_int8_t link_type, neighbor_type;
+    uint8_t link_type, neighbor_type;
     const u_char *tptr, *msg_data;
 
+    ndo->ndo_protocol = "olsr";
     tptr = pptr;
+
+    nd_print_protocol_caps(ndo);
+    ND_PRINT("v%u", (is_ipv6) ? 6 : 4);
 
     if (length < sizeof(struct olsr_common)) {
         goto trunc;
     }
 
-    if (!TTEST2(*tptr, sizeof(struct olsr_common))) {
-        goto trunc;
-    }
+    ND_TCHECK_LEN(tptr, sizeof(struct olsr_common));
 
-    ptr.common = (struct olsr_common *)tptr;
-    length = MIN(length, EXTRACT_16BITS(ptr.common->packet_len));
+    ptr.common = (const struct olsr_common *)tptr;
+    length = ND_MIN(length, GET_BE_U_2(ptr.common->packet_len));
 
-    printf("OLSRv%i, seq 0x%04x, length %u",
-            (is_ipv6 == 0) ? 4 : 6,
-            EXTRACT_16BITS(ptr.common->packet_seq),
+    ND_PRINT(", seq 0x%04x, length %u",
+            GET_BE_U_2(ptr.common->packet_seq),
             length);
 
     tptr += sizeof(struct olsr_common);
@@ -289,27 +347,23 @@ olsr_print (const u_char *pptr, u_int length, int is_ipv6)
     /*
      * In non-verbose mode, just print version.
      */
-    if (vflag < 1) {
+    if (ndo->ndo_vflag < 1) {
         return;
     }
 
     while (tptr < (pptr+length)) {
         union
         {
-            struct olsr_msg4 *v4;
-            struct olsr_msg6 *v6;
+            const struct olsr_msg4 *v4;
+            const struct olsr_msg6 *v6;
         } msgptr;
         int msg_len_valid = 0;
 
-        if (!TTEST2(*tptr, sizeof(struct olsr_msg4)))
-            goto trunc;
-
-#if INET6
-        if (is_ipv6)
-        {
-            msgptr.v6 = (struct olsr_msg6 *) tptr;
-            msg_type = msgptr.v6->msg_type;
-            msg_len = EXTRACT_16BITS(msgptr.v6->msg_len);
+        if (is_ipv6) {
+            ND_TCHECK_LEN(tptr, sizeof(struct olsr_msg6));
+            msgptr.v6 = (const struct olsr_msg6 *) tptr;
+            msg_type = GET_U_1(msgptr.v6->msg_type);
+            msg_len = GET_BE_U_2(msgptr.v6->msg_len);
             if ((msg_len >= sizeof (struct olsr_msg6))
                     && (msg_len <= length))
                 msg_len_valid = 1;
@@ -319,25 +373,26 @@ olsr_print (const u_char *pptr, u_int length, int is_ipv6)
                 return;
             }
 
-            printf("\n\t%s Message (%#04x), originator %s, ttl %u, hop %u"
-                    "\n\t  vtime %.3lfs, msg-seq 0x%04x, length %u%s",
+            ND_PRINT("\n\t%s Message (%#04x), originator %s, ttl %u, hop %u"
+                    "\n\t  vtime %.3fs, msg-seq 0x%04x, length %u%s",
                     tok2str(olsr_msg_values, "Unknown", msg_type),
-                    msg_type, ip6addr_string(msgptr.v6->originator),
-                    msgptr.v6->ttl,
-                    msgptr.v6->hopcount,
-                    ME_TO_DOUBLE(msgptr.v6->vtime),
-                    EXTRACT_16BITS(msgptr.v6->msg_seq),
+                    msg_type, GET_IP6ADDR_STRING(msgptr.v6->originator),
+                    GET_U_1(msgptr.v6->ttl),
+                    GET_U_1(msgptr.v6->hopcount),
+                    ME_TO_DOUBLE(GET_U_1(msgptr.v6->vtime)),
+                    GET_BE_U_2(msgptr.v6->msg_seq),
                     msg_len, (msg_len_valid == 0) ? " (invalid)" : "");
+            if (!msg_len_valid) {
+                return;
+            }
 
             msg_tlen = msg_len - sizeof(struct olsr_msg6);
             msg_data = tptr + sizeof(struct olsr_msg6);
-        }
-        else /* (!is_ipv6) */
-#endif /* INET6 */
-        {
-            msgptr.v4 = (struct olsr_msg4 *) tptr;
-            msg_type = msgptr.v4->msg_type;
-            msg_len = EXTRACT_16BITS(msgptr.v4->msg_len);
+        } else {	/* (!is_ipv6) */
+            ND_TCHECK_LEN(tptr, sizeof(struct olsr_msg4));
+            msgptr.v4 = (const struct olsr_msg4 *) tptr;
+            msg_type = GET_U_1(msgptr.v4->msg_type);
+            msg_len = GET_BE_U_2(msgptr.v4->msg_len);
             if ((msg_len >= sizeof (struct olsr_msg4))
                     && (msg_len <= length))
                 msg_len_valid = 1;
@@ -347,15 +402,18 @@ olsr_print (const u_char *pptr, u_int length, int is_ipv6)
                 return;
             }
 
-            printf("\n\t%s Message (%#04x), originator %s, ttl %u, hop %u"
-                    "\n\t  vtime %.3lfs, msg-seq 0x%04x, length %u%s",
+            ND_PRINT("\n\t%s Message (%#04x), originator %s, ttl %u, hop %u"
+                    "\n\t  vtime %.3fs, msg-seq 0x%04x, length %u%s",
                     tok2str(olsr_msg_values, "Unknown", msg_type),
-                    msg_type, ipaddr_string(msgptr.v4->originator),
-                    msgptr.v4->ttl,
-                    msgptr.v4->hopcount,
-                    ME_TO_DOUBLE(msgptr.v4->vtime),
-                    EXTRACT_16BITS(msgptr.v4->msg_seq),
+                    msg_type, GET_IPADDR_STRING(msgptr.v4->originator),
+                    GET_U_1(msgptr.v4->ttl),
+                    GET_U_1(msgptr.v4->hopcount),
+                    ME_TO_DOUBLE(GET_U_1(msgptr.v4->vtime)),
+                    GET_BE_U_2(msgptr.v4->msg_seq),
                     msg_len, (msg_len_valid == 0) ? " (invalid)" : "");
+            if (!msg_len_valid) {
+                return;
+            }
 
             msg_tlen = msg_len - sizeof(struct olsr_msg4);
             msg_data = tptr + sizeof(struct olsr_msg4);
@@ -364,12 +422,14 @@ olsr_print (const u_char *pptr, u_int length, int is_ipv6)
         switch (msg_type) {
         case OLSR_HELLO_MSG:
         case OLSR_HELLO_LQ_MSG:
-            if (!TTEST2(*msg_data, sizeof(struct olsr_hello)))
+            if (msg_tlen < sizeof(struct olsr_hello))
                 goto trunc;
+            ND_TCHECK_LEN(msg_data, sizeof(struct olsr_hello));
 
-            ptr.hello = (struct olsr_hello *)msg_data;
-            printf("\n\t  hello-time %.3lfs, MPR willingness %u",
-                   ME_TO_DOUBLE(ptr.hello->htime), ptr.hello->will);
+            ptr.hello = (const struct olsr_hello *)msg_data;
+            ND_PRINT("\n\t  hello-time %.3fs, MPR willingness %u",
+                   ME_TO_DOUBLE(GET_U_1(ptr.hello->htime)),
+                   GET_U_1(ptr.hello->will));
             msg_data += sizeof(struct olsr_hello);
             msg_tlen -= sizeof(struct olsr_hello);
 
@@ -379,20 +439,19 @@ olsr_print (const u_char *pptr, u_int length, int is_ipv6)
                 /*
                  * link-type.
                  */
-                if (!TTEST2(*msg_data, sizeof(struct olsr_hello_link)))
-                    goto trunc;
+                ND_TCHECK_LEN(msg_data, sizeof(struct olsr_hello_link));
 
-                ptr.hello_link = (struct olsr_hello_link *)msg_data;
+                ptr.hello_link = (const struct olsr_hello_link *)msg_data;
 
-                hello_len = EXTRACT_16BITS(ptr.hello_link->len);
-                link_type = OLSR_EXTRACT_LINK_TYPE(ptr.hello_link->link_code);
-                neighbor_type = OLSR_EXTRACT_NEIGHBOR_TYPE(ptr.hello_link->link_code);
+                hello_len = GET_BE_U_2(ptr.hello_link->len);
+                link_type = OLSR_EXTRACT_LINK_TYPE(GET_U_1(ptr.hello_link->link_code));
+                neighbor_type = OLSR_EXTRACT_NEIGHBOR_TYPE(GET_U_1(ptr.hello_link->link_code));
 
                 if ((hello_len <= msg_tlen)
                         && (hello_len >= sizeof(struct olsr_hello_link)))
                     hello_len_valid = 1;
 
-                printf("\n\t    link-type %s, neighbor-type %s, len %u%s",
+                ND_PRINT("\n\t    link-type %s, neighbor-type %s, len %u%s",
                        tok2str(olsr_link_type_values, "Unknown", link_type),
                        tok2str(olsr_neighbor_type_values, "Unknown", neighbor_type),
                        hello_len,
@@ -405,15 +464,18 @@ olsr_print (const u_char *pptr, u_int length, int is_ipv6)
                 msg_tlen -= sizeof(struct olsr_hello_link);
                 hello_len -= sizeof(struct olsr_hello_link);
 
+                ND_TCHECK_LEN(msg_data, hello_len);
                 if (msg_type == OLSR_HELLO_MSG) {
-                    olsr_print_neighbor(msg_data, hello_len);
+                    if (olsr_print_neighbor(ndo, msg_data, hello_len) == -1)
+                        goto trunc;
                 } else {
-#if INET6
-                    if (is_ipv6)
-                        olsr_print_lq_neighbor6(msg_data, hello_len);
-                    else
-#endif
-                        olsr_print_lq_neighbor4(msg_data, hello_len);
+                    if (is_ipv6) {
+                        if (olsr_print_lq_neighbor6(ndo, msg_data, hello_len) == -1)
+                            goto trunc;
+                    } else {
+                        if (olsr_print_lq_neighbor4(ndo, msg_data, hello_len) == -1)
+                            goto trunc;
+                    }
                 }
 
                 msg_data += hello_len;
@@ -423,45 +485,43 @@ olsr_print (const u_char *pptr, u_int length, int is_ipv6)
 
         case OLSR_TC_MSG:
         case OLSR_TC_LQ_MSG:
-            if (!TTEST2(*msg_data, sizeof(struct olsr_tc)))
+            if (msg_tlen < sizeof(struct olsr_tc))
                 goto trunc;
+            ND_TCHECK_LEN(msg_data, sizeof(struct olsr_tc));
 
-            ptr.tc = (struct olsr_tc *)msg_data;
-            printf("\n\t    advertised neighbor seq 0x%04x",
-                   EXTRACT_16BITS(ptr.tc->ans_seq));
+            ptr.tc = (const struct olsr_tc *)msg_data;
+            ND_PRINT("\n\t    advertised neighbor seq 0x%04x",
+                   GET_BE_U_2(ptr.tc->ans_seq));
             msg_data += sizeof(struct olsr_tc);
             msg_tlen -= sizeof(struct olsr_tc);
 
             if (msg_type == OLSR_TC_MSG) {
-                olsr_print_neighbor(msg_data, msg_tlen);
+                if (olsr_print_neighbor(ndo, msg_data, msg_tlen) == -1)
+                    goto trunc;
             } else {
-#if INET6
-                if (is_ipv6)
-                    olsr_print_lq_neighbor6(msg_data, msg_tlen);
-                else
-#endif
-                    olsr_print_lq_neighbor4(msg_data, msg_tlen);
+                if (is_ipv6) {
+                    if (olsr_print_lq_neighbor6(ndo, msg_data, msg_tlen) == -1)
+                        goto trunc;
+                } else {
+                    if (olsr_print_lq_neighbor4(ndo, msg_data, msg_tlen) == -1)
+                        goto trunc;
+                }
             }
             break;
 
         case OLSR_MID_MSG:
         {
-            size_t addr_size = sizeof(struct in_addr);
+            u_int addr_size = (u_int)sizeof(nd_ipv4);
 
-#if INET6
             if (is_ipv6)
-                addr_size = sizeof(struct in6_addr);
-#endif
+                addr_size = (u_int)sizeof(nd_ipv6);
 
             while (msg_tlen >= addr_size) {
-                if (!TTEST2(*msg_data, addr_size))
-                    goto trunc;
+                ND_TCHECK_LEN(msg_data, addr_size);
+                ND_PRINT("\n\t  interface address %s",
+                        is_ipv6 ? GET_IP6ADDR_STRING(msg_data) :
+                        GET_IPADDR_STRING(msg_data));
 
-                printf("\n\t  interface address %s",
-#if INET6
-                        is_ipv6 ? ip6addr_string(msg_data) :
-#endif
-                        ipaddr_string(msg_data));
                 msg_data += addr_size;
                 msg_tlen -= addr_size;
             }
@@ -469,47 +529,77 @@ olsr_print (const u_char *pptr, u_int length, int is_ipv6)
         }
 
         case OLSR_HNA_MSG:
-            printf("\n\t  Advertised networks (total %u)",
-                    (unsigned int) (msg_tlen / sizeof(struct olsr_hna6)));
-#if INET6
-            if (is_ipv6)
-            {
+            if (is_ipv6) {
                 int i = 0;
+
+                ND_PRINT("\n\t  Advertised networks (total %u)",
+                        (unsigned int) (msg_tlen / sizeof(struct olsr_hna6)));
+
                 while (msg_tlen >= sizeof(struct olsr_hna6)) {
-                    struct olsr_hna6 *hna6;
+                    const struct olsr_hna6 *hna6;
 
-                    if (!TTEST2(*msg_data, sizeof(struct olsr_hna6)))
-                        goto trunc;
+                    ND_TCHECK_LEN(msg_data, sizeof(struct olsr_hna6));
 
-                    hna6 = (struct olsr_hna6 *)msg_data;
+                    hna6 = (const struct olsr_hna6 *)msg_data;
 
-                    printf("\n\t    #%i: %s/%u",
-                            i, ip6addr_string(hna6->network),
+                    ND_PRINT("\n\t    #%i: %s/%u",
+                            i, GET_IP6ADDR_STRING(hna6->network),
                             mask62plen (hna6->mask));
 
                     msg_data += sizeof(struct olsr_hna6);
                     msg_tlen -= sizeof(struct olsr_hna6);
                 }
-            }
-            else
-#endif
-            {
+            } else {
                 int col = 0;
-                while (msg_tlen >= sizeof(struct olsr_hna4)) {
-                    if (!TTEST2(*msg_data, sizeof(struct olsr_hna4)))
-                        goto trunc;
 
-                    ptr.hna = (struct olsr_hna4 *)msg_data;
+                ND_PRINT("\n\t  Advertised networks (total %u)",
+                        (unsigned int) (msg_tlen / sizeof(struct olsr_hna4)));
+
+                while (msg_tlen >= sizeof(struct olsr_hna4)) {
+                    ND_TCHECK_LEN(msg_data, sizeof(struct olsr_hna4));
+
+                    ptr.hna = (const struct olsr_hna4 *)msg_data;
 
                     /* print 4 prefixes per line */
-                    if (col == 0)
-                        printf ("\n\t    ");
-                    else
-                        printf (", ");
-
-                    printf("%s/%u",
-                            ipaddr_string(ptr.hna->network),
-                            mask2plen(EXTRACT_32BITS(ptr.hna->mask)));
+                    if (!ptr.hna->network[0] && !ptr.hna->network[1] &&
+                        !ptr.hna->network[2] && !ptr.hna->network[3] &&
+                        !ptr.hna->mask[GW_HNA_PAD] &&
+                        ptr.hna->mask[GW_HNA_FLAGS]) {
+                            /* smart gateway */
+                            ND_PRINT("%sSmart-Gateway:%s%s%s%s%s %u/%u",
+                                col == 0 ? "\n\t    " : ", ", /* indent */
+                                /* sgw */
+                                /* LINKSPEED */
+                                (ptr.hna->mask[GW_HNA_FLAGS] &
+                                 GW_HNA_FLAG_LINKSPEED) ? " LINKSPEED" : "",
+                                /* IPV4 */
+                                (ptr.hna->mask[GW_HNA_FLAGS] &
+                                 GW_HNA_FLAG_IPV4) ? " IPV4" : "",
+                                /* IPV4-NAT */
+                                (ptr.hna->mask[GW_HNA_FLAGS] &
+                                 GW_HNA_FLAG_IPV4_NAT) ? " IPV4-NAT" : "",
+                                /* IPV6 */
+                                (ptr.hna->mask[GW_HNA_FLAGS] &
+                                 GW_HNA_FLAG_IPV6) ? " IPV6" : "",
+                                /* IPv6PREFIX */
+                                (ptr.hna->mask[GW_HNA_FLAGS] &
+                                 GW_HNA_FLAG_IPV6PREFIX) ? " IPv6-PREFIX" : "",
+                                /* uplink */
+                                (ptr.hna->mask[GW_HNA_FLAGS] &
+                                 GW_HNA_FLAG_LINKSPEED) ?
+                                 deserialize_gw_speed(ptr.hna->mask[GW_HNA_UPLINK]) : 0,
+                                /* downlink */
+                                (ptr.hna->mask[GW_HNA_FLAGS] &
+                                 GW_HNA_FLAG_LINKSPEED) ?
+                                 deserialize_gw_speed(ptr.hna->mask[GW_HNA_DOWNLINK]) : 0
+                                );
+                    } else {
+                        /* normal route */
+                        ND_PRINT("%s%s/%u",
+                                col == 0 ? "\n\t    " : ", ",
+                                GET_IPADDR_STRING(ptr.hna->network),
+                                mask2plen(GET_BE_U_4(ptr.hna->mask)));
+                    }
 
                     msg_data += sizeof(struct olsr_hna4);
                     msg_tlen -= sizeof(struct olsr_hna4);
@@ -521,25 +611,26 @@ olsr_print (const u_char *pptr, u_int length, int is_ipv6)
 
         case OLSR_NAMESERVICE_MSG:
         {
-            u_int name_entries = EXTRACT_16BITS(msg_data+2);
-            u_int addr_size = 4;
-            int name_entries_valid = 0;
+            u_int name_entries;
+            u_int addr_size;
+            int name_entries_valid;
             u_int i;
 
+            if (msg_tlen < 4)
+                goto trunc;
+
+            name_entries = GET_BE_U_2(msg_data + 2);
+            addr_size = 4;
             if (is_ipv6)
                 addr_size = 16;
 
+            name_entries_valid = 0;
             if ((name_entries > 0)
                     && ((name_entries * (4 + addr_size)) <= msg_tlen))
                 name_entries_valid = 1;
 
-            if (msg_tlen < 4)
-                goto trunc;
-            if (!TTEST2(*msg_data, 4))
-                goto trunc;
-
-            printf("\n\t  Version %u, Entries %u%s",
-                   EXTRACT_16BITS(msg_data),
+            ND_PRINT("\n\t  Version %u, Entries %u%s",
+                   GET_BE_U_2(msg_data),
                    name_entries, (name_entries_valid == 0) ? " (invalid)" : "");
 
             if (name_entries_valid == 0)
@@ -553,11 +644,9 @@ olsr_print (const u_char *pptr, u_int length, int is_ipv6)
 
                 if (msg_tlen < 4)
                     break;
-                if (!TTEST2(*msg_data, 4))
-                    goto trunc;
 
-                name_entry_type = EXTRACT_16BITS(msg_data);
-                name_entry_len = EXTRACT_16BITS(msg_data+2);
+                name_entry_type = GET_BE_U_2(msg_data);
+                name_entry_len = GET_BE_U_2(msg_data + 2);
 
                 msg_data += 4;
                 msg_tlen -= 4;
@@ -565,7 +654,7 @@ olsr_print (const u_char *pptr, u_int length, int is_ipv6)
                 if ((name_entry_len > 0) && ((addr_size + name_entry_len) <= msg_tlen))
                     name_entry_len_valid = 1;
 
-                printf("\n\t    #%u: type %#06x, length %u%s",
+                ND_PRINT("\n\t    #%u: type %#06x, length %u%s",
                         (unsigned int) i, name_entry_type,
                         name_entry_len, (name_entry_len_valid == 0) ? " (invalid)" : "");
 
@@ -580,19 +669,17 @@ olsr_print (const u_char *pptr, u_int length, int is_ipv6)
                 if (msg_tlen < addr_size + name_entry_len + name_entry_padding)
                     goto trunc;
 
-                if (!TTEST2(*msg_data, addr_size + name_entry_len + name_entry_padding))
-                    goto trunc;
+                ND_TCHECK_LEN(msg_data,
+                              addr_size + name_entry_len + name_entry_padding);
 
-#if INET6
                 if (is_ipv6)
-                    printf(", address %s, name \"",
-                            ip6addr_string(msg_data));
+                    ND_PRINT(", address %s, name \"",
+                            GET_IP6ADDR_STRING(msg_data));
                 else
-#endif
-                    printf(", address %s, name \"",
-                            ipaddr_string(msg_data));
-                fn_printn(msg_data + addr_size, name_entry_len, NULL);
-                printf("\"");
+                    ND_PRINT(", address %s, name \"",
+                            GET_IPADDR_STRING(msg_data));
+                (void)nd_printn(ndo, msg_data + addr_size, name_entry_len, NULL);
+                ND_PRINT("\"");
 
                 msg_data += addr_size + name_entry_len + name_entry_padding;
                 msg_tlen -= addr_size + name_entry_len + name_entry_padding;
@@ -606,7 +693,7 @@ olsr_print (const u_char *pptr, u_int length, int is_ipv6)
              */
         case OLSR_POWERINFO_MSG:
         default:
-            print_unknown_data(msg_data, "\n\t    ", msg_tlen);
+            print_unknown_data(ndo, msg_data, "\n\t    ", msg_tlen);
             break;
         } /* switch (msg_type) */
         tptr += msg_len;
@@ -615,12 +702,5 @@ olsr_print (const u_char *pptr, u_int length, int is_ipv6)
     return;
 
  trunc:
-    printf("[|olsr]");
+    nd_print_trunc(ndo);
 }
-
-/*
- * Local Variables:
- * c-style: whitesmith
- * c-basic-offset: 4
- * End:
- */

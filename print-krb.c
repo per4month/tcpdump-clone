@@ -21,26 +21,36 @@
  * Initial contribution from John Hawkinson (jhawk@mit.edu).
  */
 
-#ifndef lint
-static const char rcsid[] _U_ =
-    "@(#) $Header: /tcpdump/master/tcpdump/print-krb.c,v 1.23 2003-11-16 09:36:26 guy Exp $";
-#endif
+/* \summary: Kerberos printer */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
+#include <config.h>
 
-#include <tcpdump-stdinc.h>
+#include "netdissect-stdinc.h"
 
-#include <stdio.h>
-
-#include "interface.h"
-#include "addrtoname.h"
+#include "netdissect.h"
 #include "extract.h"
 
-static const u_char *c_print(register const u_char *, register const u_char *);
-static const u_char *krb4_print_hdr(const u_char *);
-static void krb4_print(const u_char *);
+/*
+ * Kerberos 4:
+ *
+ * Athena Technical Plan
+ * Section E.2.1
+ * Kerberos Authentication and Authorization System
+ * by S. P. Miller, B. C. Neuman, J. I. Schiller, and J. H. Saltzer
+ *
+ * https://web.mit.edu/Saltzer/www/publications/athenaplan/e.2.1.pdf
+ *
+ * 7. Appendix I Design Specifications
+ *
+ * Kerberos 5:
+ *
+ * RFC 1510, RFC 2630, etc.
+ */
+
+
+static const u_char *c_print(netdissect_options *, const u_char *, const u_char *);
+static const u_char *krb4_print_hdr(netdissect_options *, const u_char *);
+static void krb4_print(netdissect_options *, const u_char *);
 
 #define AUTH_MSG_KDC_REQUEST			1<<1
 #define AUTH_MSG_KDC_REPLY			2<<1
@@ -65,13 +75,11 @@ static void krb4_print(const u_char *);
 #define KERB_ERR_NULL_KEY			10
 
 struct krb {
-	u_int8_t pvno;		/* Protocol Version */
-	u_int8_t type;		/* Type+B */
+	nd_uint8_t pvno;	/* Protocol Version */
+	nd_uint8_t type;	/* Type+B */
 };
 
-static char tstr[] = " [|kerberos]";
-
-static struct tok type2str[] = {
+static const struct tok type2str[] = {
 	{ AUTH_MSG_KDC_REQUEST,		"KDC_REQUEST" },
 	{ AUTH_MSG_KDC_REPLY,		"KDC_REPLY" },
 	{ AUTH_MSG_APPL_REQUEST,	"APPL_REQUEST" },
@@ -84,7 +92,7 @@ static struct tok type2str[] = {
 	{ 0,				NULL }
 };
 
-static struct tok kerr2str[] = {
+static const struct tok kerr2str[] = {
 	{ KERB_ERR_OK,			"OK" },
 	{ KERB_ERR_NAME_EXP,		"NAME_EXP" },
 	{ KERB_ERR_SERVICE_EXP,		"SERVICE_EXP" },
@@ -100,28 +108,21 @@ static struct tok kerr2str[] = {
 };
 
 static const u_char *
-c_print(register const u_char *s, register const u_char *ep)
+c_print(netdissect_options *ndo,
+        const u_char *s, const u_char *ep)
 {
-	register u_char c;
-	register int flag;
+	u_char c;
+	int flag;
 
 	flag = 1;
 	while (s < ep) {
-		c = *s++;
+		c = GET_U_1(s);
+		s++;
 		if (c == '\0') {
 			flag = 0;
 			break;
 		}
-		if (!isascii(c)) {
-			c = toascii(c);
-			putchar('M');
-			putchar('-');
-		}
-		if (!isprint(c)) {
-			c ^= 0x40;	/* DEL to ?, others to alpha */
-			putchar('^');
-		}
-		putchar(c);
+		fn_print_char(ndo, c);
 	}
 	if (flag)
 		return NULL;
@@ -129,133 +130,125 @@ c_print(register const u_char *s, register const u_char *ep)
 }
 
 static const u_char *
-krb4_print_hdr(const u_char *cp)
+krb4_print_hdr(netdissect_options *ndo,
+               const u_char *cp)
 {
 	cp += 2;
 
-#define PRINT		if ((cp = c_print(cp, snapend)) == NULL) goto trunc
+#define PRINT		if ((cp = c_print(ndo, cp, ndo->ndo_snapend)) == NULL) goto trunc
 
 	PRINT;
-	putchar('.');
+	ND_PRINT(".");
 	PRINT;
-	putchar('@');
+	ND_PRINT("@");
 	PRINT;
 	return (cp);
 
 trunc:
-	fputs(tstr, stdout);
+	nd_print_trunc(ndo);
 	return (NULL);
 
 #undef PRINT
 }
 
 static void
-krb4_print(const u_char *cp)
+krb4_print(netdissect_options *ndo,
+           const u_char *cp)
 {
-	register const struct krb *kp;
+	const struct krb *kp;
 	u_char type;
 	u_short len;
 
-#define PRINT		if ((cp = c_print(cp, snapend)) == NULL) goto trunc
+#define PRINT		if ((cp = c_print(ndo, cp, ndo->ndo_snapend)) == NULL) goto trunc
 /*  True if struct krb is little endian */
-#define IS_LENDIAN(kp)	(((kp)->type & 0x01) != 0)
-#define KTOHSP(kp, cp)	(IS_LENDIAN(kp) ? EXTRACT_LE_16BITS(cp) : EXTRACT_16BITS(cp))
+#define IS_LENDIAN(kp)	((GET_U_1((kp)->type) & 0x01) != 0)
+#define KTOHSP(kp, cp)	(IS_LENDIAN(kp) ? GET_LE_U_2(cp) : GET_BE_U_2(cp))
 
-	kp = (struct krb *)cp;
+	kp = (const struct krb *)cp;
 
-	if ((&kp->type) >= snapend) {
-		fputs(tstr, stdout);
-		return;
-	}
+	type = GET_U_1(kp->type) & (0xFF << 1);
 
-	type = kp->type & (0xFF << 1);
-
-	printf(" %s %s: ",
+	ND_PRINT(" %s %s: ",
 	    IS_LENDIAN(kp) ? "le" : "be", tok2str(type2str, NULL, type));
 
 	switch (type) {
 
 	case AUTH_MSG_KDC_REQUEST:
-		if ((cp = krb4_print_hdr(cp)) == NULL)
+		if ((cp = krb4_print_hdr(ndo, cp)) == NULL)
 			return;
 		cp += 4;	/* ctime */
-		TCHECK(*cp);
-		printf(" %dmin ", *cp++ * 5);
+		ND_PRINT(" %umin ", GET_U_1(cp) * 5);
+		cp++;
 		PRINT;
-		putchar('.');
+		ND_PRINT(".");
 		PRINT;
 		break;
 
 	case AUTH_MSG_APPL_REQUEST:
 		cp += 2;
-		TCHECK(*cp);
-		printf("v%d ", *cp++);
+		ND_PRINT("v%u ", GET_U_1(cp));
+		cp++;
 		PRINT;
-		TCHECK(*cp);
-		printf(" (%d)", *cp++);
-		TCHECK(*cp);
-		printf(" (%d)", *cp);
+		ND_PRINT(" (%u)", GET_U_1(cp));
+		cp++;
+		ND_PRINT(" (%u)", GET_U_1(cp));
 		break;
 
 	case AUTH_MSG_KDC_REPLY:
-		if ((cp = krb4_print_hdr(cp)) == NULL)
+		if ((cp = krb4_print_hdr(ndo, cp)) == NULL)
 			return;
 		cp += 10;	/* timestamp + n + exp + kvno */
-		TCHECK2(*cp, sizeof(short));
 		len = KTOHSP(kp, cp);
-		printf(" (%d)", len);
+		ND_PRINT(" (%u)", len);
 		break;
 
 	case AUTH_MSG_ERR_REPLY:
-		if ((cp = krb4_print_hdr(cp)) == NULL)
+		if ((cp = krb4_print_hdr(ndo, cp)) == NULL)
 			return;
-		cp += 4; 	  /* timestamp */
-		TCHECK2(*cp, sizeof(short));
-		printf(" %s ", tok2str(kerr2str, NULL, KTOHSP(kp, cp)));
+		cp += 4;	  /* timestamp */
+		ND_PRINT(" %s ", tok2str(kerr2str, NULL, KTOHSP(kp, cp)));
 		cp += 4;
 		PRINT;
 		break;
 
 	default:
-		fputs("(unknown)", stdout);
+		ND_PRINT("(unknown)");
 		break;
 	}
 
 	return;
 trunc:
-	fputs(tstr, stdout);
+	nd_print_trunc(ndo);
 }
 
 void
-krb_print(const u_char *dat)
+krb_print(netdissect_options *ndo,
+          const u_char *dat)
 {
-	register const struct krb *kp;
+	const struct krb *kp;
 
-	kp = (struct krb *)dat;
+	ndo->ndo_protocol = "kerberos";
+	nd_print_protocol(ndo);
 
-	if (dat >= snapend) {
-		fputs(tstr, stdout);
-		return;
-	}
+	kp = (const struct krb *)dat;
 
-	switch (kp->pvno) {
+	switch (GET_U_1(kp->pvno)) {
 
 	case 1:
 	case 2:
 	case 3:
-		printf(" v%d", kp->pvno);
+		ND_PRINT(" v%u", GET_U_1(kp->pvno));
 		break;
 
 	case 4:
-		printf(" v%d", kp->pvno);
-		krb4_print((const u_char *)kp);
+		ND_PRINT(" v%u", GET_U_1(kp->pvno));
+		krb4_print(ndo, (const u_char *)kp);
 		break;
 
 	case 106:
 	case 107:
-		fputs(" v5", stdout);
+		ND_PRINT(" v5");
 		/* Decode ASN.1 here "someday" */
 		break;
 	}
-	return;
 }

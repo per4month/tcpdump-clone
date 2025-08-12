@@ -3,6 +3,7 @@
 Makefile
 *~
 *.o
+libnetdissect.a
 config.h
 config.log
 config.cache
@@ -15,3 +16,5 @@ tcpdump
 tcpdump.1
 tcpdump-*.tar.gz
 version.c
+failure-outputs.txt
+autom4te.cache/

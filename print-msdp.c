@@ -15,45 +15,40 @@
  * LIMITATION, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
  * FOR A PARTICULAR PURPOSE.
  */
-#ifndef lint
-static const char rcsid[] _U_ =
-    "@(#) $Header: /tcpdump/master/tcpdump/print-msdp.c,v 1.7 2005-04-06 21:32:41 mcr Exp $";
-#endif
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
+/* \summary: Multicast Source Discovery Protocol (MSDP) printer */
 
-#include <tcpdump-stdinc.h>
+#include <config.h>
 
-#include <stdio.h>
-#include <stdlib.h>
+#include "netdissect-stdinc.h"
 
-#include "interface.h"
+#include "netdissect.h"
 #include "addrtoname.h"
 #include "extract.h"
 
 #define MSDP_TYPE_MAX	7
 
 void
-msdp_print(const unsigned char *sp, u_int length)
+msdp_print(netdissect_options *ndo, const u_char *sp, u_int length)
 {
 	unsigned int type, len;
 
-	TCHECK2(*sp, 3);
+	ndo->ndo_protocol = "msdp";
+	ND_PRINT(": ");
+	nd_print_protocol(ndo);
 	/* See if we think we're at the beginning of a compound packet */
-	type = *sp;
-	len = EXTRACT_16BITS(sp + 1);
+	type = GET_U_1(sp);
+	len = GET_BE_U_2(sp + 1);
 	if (len > 1500 || len < 3 || type == 0 || type > MSDP_TYPE_MAX)
 		goto trunc;	/* not really truncated, but still not decodable */
-	(void)printf(" msdp:");
-	while (length > 0) {
-		TCHECK2(*sp, 3);
-		type = *sp;
-		len = EXTRACT_16BITS(sp + 1);
-		if (len > 1400 || vflag)
-			printf(" [len %u]", len);
+	while (length != 0) {
+		type = GET_U_1(sp);
+		len = GET_BE_U_2(sp + 1);
+		if (len > 1400 || ndo->ndo_vflag)
+			ND_PRINT(" [len %u]", len);
 		if (len < 3)
+			goto trunc;
+		if (length < len)
 			goto trunc;
 		sp += 3;
 		length -= 3;
@@ -61,35 +56,34 @@ msdp_print(const unsigned char *sp, u_int length)
 		case 1:	/* IPv4 Source-Active */
 		case 3: /* IPv4 Source-Active Response */
 			if (type == 1)
-				(void)printf(" SA");
+				ND_PRINT(" SA");
 			else
-				(void)printf(" SA-Response");
-			TCHECK(*sp);
-			(void)printf(" %u entries", *sp);
-			if ((u_int)((*sp * 12) + 8) < len) {
-				(void)printf(" [w/data]");
-				if (vflag > 1) {
-					(void)printf(" ");
-					ip_print(gndo, sp + *sp * 12 + 8 - 3,
-					         len - (*sp * 12 + 8));
+				ND_PRINT(" SA-Response");
+			ND_PRINT(" %u entries", GET_U_1(sp));
+			if ((u_int)((GET_U_1(sp) * 12) + 8) < len) {
+				ND_PRINT(" [w/data]");
+				if (ndo->ndo_vflag > 1) {
+					ND_PRINT(" ");
+					ip_print(ndo, sp +
+						 GET_U_1(sp) * 12 + 8 - 3,
+						 len - (GET_U_1(sp) * 12 + 8));
 				}
 			}
 			break;
 		case 2:
-			(void)printf(" SA-Request");
-			TCHECK2(*sp, 5);
-			(void)printf(" for %s", ipaddr_string(sp + 1));
+			ND_PRINT(" SA-Request");
+			ND_PRINT(" for %s", GET_IPADDR_STRING(sp + 1));
 			break;
 		case 4:
-			(void)printf(" Keepalive");
+			ND_PRINT(" Keepalive");
 			if (len != 3)
-				(void)printf("[len=%d] ", len);
+				ND_PRINT("[len=%u] ", len);
 			break;
 		case 5:
-			(void)printf(" Notification");
+			ND_PRINT(" Notification");
 			break;
 		default:
-			(void)printf(" [type=%d len=%d]", type, len);
+			ND_PRINT(" [type=%u len=%u]", type, len);
 			break;
 		}
 		sp += (len - 3);
@@ -97,12 +91,5 @@ msdp_print(const unsigned char *sp, u_int length)
 	}
 	return;
 trunc:
-	(void)printf(" [|msdp]");
+	nd_print_trunc(ndo);
 }
-
-/*
- * Local Variables:
- * c-style: whitesmith
- * c-basic-offset: 8
- * End:
- */

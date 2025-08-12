@@ -1,4 +1,3 @@
-/* @(#) $Header: /tcpdump/master/tcpdump/chdlc.h,v 1.1 2000-09-18 05:11:43 guy Exp $ (LBL) */
 /*
  * Copyright (c) 1990, 1991, 1993, 1994, 1995, 1996, 1997
  *	The Regents of the University of California.  All rights reserved.
@@ -20,7 +19,7 @@
  * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  */
 
-#define CHDLC_HDRLEN 		4
+#define CHDLC_HDRLEN		4
 #define CHDLC_UNICAST		0x0f
 #define CHDLC_BCAST		0x8f
 #define CHDLC_TYPE_SLARP	0x8035

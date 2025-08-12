@@ -19,14 +19,9 @@
  * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  */
 
-#ifndef lint
-static const char rcsid[] _U_ =
-    "@(#) $Header: /tcpdump/master/tcpdump/print-sunrpc.c,v 1.47 2005-04-27 21:43:48 guy Exp $ (LBL)";
-#endif
+/* \summary: Sun Remote Procedure Call printer */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
+#include <config.h>
 
 /*
  * At least on HP-UX:
@@ -43,7 +38,7 @@ static const char rcsid[] _U_ =
  */
 #undef _XOPEN_SOURCE_EXTENDED
 
-#include <tcpdump-stdinc.h>
+#include "netdissect-stdinc.h"
 
 #if defined(HAVE_GETRPCBYNUMBER) && defined(HAVE_RPC_RPC_H)
 #include <rpc/rpc.h>
@@ -55,20 +50,96 @@ static const char rcsid[] _U_ =
 #include <stdio.h>
 #include <string.h>
 
-#include "interface.h"
+#define ND_LONGJMP_FROM_TCHECK
+#include "netdissect.h"
 #include "addrtoname.h"
 #include "extract.h"
 
 #include "ip.h"
-#ifdef INET6
 #include "ip6.h"
-#endif
 
 #include "rpc_auth.h"
 #include "rpc_msg.h"
-#include "pmap_prot.h"
 
-static struct tok proc2str[] = {
+/*
+ * Sun RPC is a product of Sun Microsystems, Inc. and is provided for
+ * unrestricted use provided that this legend is included on all tape
+ * media and as a part of the software program in whole or part.  Users
+ * may copy or modify Sun RPC without charge, but are not authorized
+ * to license or distribute it to anyone else except as part of a product or
+ * program developed by the user.
+ *
+ * SUN RPC IS PROVIDED AS IS WITH NO WARRANTIES OF ANY KIND INCLUDING THE
+ * WARRANTIES OF DESIGN, MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE, OR ARISING FROM A COURSE OF DEALING, USAGE OR TRADE PRACTICE.
+ *
+ * Sun RPC is provided with no support and without any obligation on the
+ * part of Sun Microsystems, Inc. to assist in its use, correction,
+ * modification or enhancement.
+ *
+ * SUN MICROSYSTEMS, INC. SHALL HAVE NO LIABILITY WITH RESPECT TO THE
+ * INFRINGEMENT OF COPYRIGHTS, TRADE SECRETS OR ANY PATENTS BY SUN RPC
+ * OR ANY PART THEREOF.
+ *
+ * In no event will Sun Microsystems, Inc. be liable for any lost revenue
+ * or profits or other special, indirect and consequential damages, even if
+ * Sun has been advised of the possibility of such damages.
+ *
+ * Sun Microsystems, Inc.
+ * 2550 Garcia Avenue
+ * Mountain View, California  94043
+ *
+ *	from: @(#)pmap_prot.h 1.14 88/02/08 SMI
+ *	from: @(#)pmap_prot.h	2.1 88/07/29 4.0 RPCSRC
+ * $FreeBSD: src/include/rpc/pmap_prot.h,v 1.9.2.1 1999/08/29 14:39:05 peter Exp $
+ */
+
+/*
+ * pmap_prot.h
+ * Protocol for the local binder service, or pmap.
+ *
+ * Copyright (C) 1984, Sun Microsystems, Inc.
+ *
+ * The following procedures are supported by the protocol:
+ *
+ * PMAPPROC_NULL() returns ()
+ *	takes nothing, returns nothing
+ *
+ * PMAPPROC_SET(struct pmap) returns (bool_t)
+ *	TRUE is success, FALSE is failure.  Registers the tuple
+ *	[prog, vers, prot, port].
+ *
+ * PMAPPROC_UNSET(struct pmap) returns (bool_t)
+ *	TRUE is success, FALSE is failure.  Un-registers pair
+ *	[prog, vers].  prot and port are ignored.
+ *
+ * PMAPPROC_GETPORT(struct pmap) returns (long unsigned).
+ *	0 is failure.  Otherwise returns the port number where the pair
+ *	[prog, vers] is registered.  It may lie!
+ *
+ * PMAPPROC_DUMP() RETURNS (struct pmaplist *)
+ *
+ * PMAPPROC_CALLIT(unsigned, unsigned, unsigned, string<>)
+ *	RETURNS (port, string<>);
+ * usage: encapsulatedresults = PMAPPROC_CALLIT(prog, vers, proc, encapsulatedargs);
+ *	Calls the procedure on the local machine.  If it is not registered,
+ *	this procedure is quite; ie it does not return error information!!!
+ *	This procedure only is supported on rpc/udp and calls via
+ *	rpc/udp.  This routine only passes null authentication parameters.
+ *	This file has no interface to xdr routines for PMAPPROC_CALLIT.
+ *
+ * The service supports remote procedure calls on udp/ip or tcp/ip socket 111.
+ */
+
+#define SUNRPC_PMAPPORT		((uint16_t)111)
+#define SUNRPC_PMAPPROC_NULL	((uint32_t)0)
+#define SUNRPC_PMAPPROC_SET	((uint32_t)1)
+#define SUNRPC_PMAPPROC_UNSET	((uint32_t)2)
+#define SUNRPC_PMAPPROC_GETPORT	((uint32_t)3)
+#define SUNRPC_PMAPPROC_DUMP	((uint32_t)4)
+#define SUNRPC_PMAPPROC_CALLIT	((uint32_t)5)
+
+static const struct tok proc2str[] = {
 	{ SUNRPC_PMAPPROC_NULL,		"null" },
 	{ SUNRPC_PMAPPROC_SET,		"set" },
 	{ SUNRPC_PMAPPROC_UNSET,	"unset" },
@@ -79,94 +150,90 @@ static struct tok proc2str[] = {
 };
 
 /* Forwards */
-static char *progstr(u_int32_t);
+static char *progstr(uint32_t);
 
 void
-sunrpcrequest_print(register const u_char *bp, register u_int length,
-		    register const u_char *bp2)
+sunrpc_print(netdissect_options *ndo, const u_char *bp,
+                    u_int length, const u_char *bp2)
 {
-	register const struct sunrpc_msg *rp;
-	register const struct ip *ip;
-#ifdef INET6
-	register const struct ip6_hdr *ip6;
-#endif
-	u_int32_t x;
+	const struct sunrpc_msg *rp;
+	const struct ip *ip;
+	const struct ip6_hdr *ip6;
+	uint32_t x;
 	char srcid[20], dstid[20];	/*fits 32bit*/
 
-	rp = (struct sunrpc_msg *)bp;
+	ndo->ndo_protocol = "sunrpc";
+	rp = (const struct sunrpc_msg *)bp;
+	ND_TCHECK_SIZE(rp);
 
-	if (!nflag) {
+	if (!ndo->ndo_nflag) {
 		snprintf(srcid, sizeof(srcid), "0x%x",
-		    EXTRACT_32BITS(&rp->rm_xid));
+		    GET_BE_U_4(rp->rm_xid));
 		strlcpy(dstid, "sunrpc", sizeof(dstid));
 	} else {
 		snprintf(srcid, sizeof(srcid), "0x%x",
-		    EXTRACT_32BITS(&rp->rm_xid));
+		    GET_BE_U_4(rp->rm_xid));
 		snprintf(dstid, sizeof(dstid), "0x%x", SUNRPC_PMAPPORT);
 	}
 
-	switch (IP_V((struct ip *)bp2)) {
+	switch (IP_V((const struct ip *)bp2)) {
 	case 4:
-		ip = (struct ip *)bp2;
-		printf("%s.%s > %s.%s: %d",
-		    ipaddr_string(&ip->ip_src), srcid,
-		    ipaddr_string(&ip->ip_dst), dstid, length);
+		ip = (const struct ip *)bp2;
+		ND_PRINT("%s.%s > %s.%s: %u",
+		    GET_IPADDR_STRING(ip->ip_src), srcid,
+		    GET_IPADDR_STRING(ip->ip_dst), dstid, length);
 		break;
-#ifdef INET6
 	case 6:
-		ip6 = (struct ip6_hdr *)bp2;
-		printf("%s.%s > %s.%s: %d",
-		    ip6addr_string(&ip6->ip6_src), srcid,
-		    ip6addr_string(&ip6->ip6_dst), dstid, length);
+		ip6 = (const struct ip6_hdr *)bp2;
+		ND_PRINT("%s.%s > %s.%s: %u",
+		    GET_IP6ADDR_STRING(ip6->ip6_src), srcid,
+		    GET_IP6ADDR_STRING(ip6->ip6_dst), dstid, length);
 		break;
-#endif
 	default:
-		printf("%s.%s > %s.%s: %d", "?", srcid, "?", dstid, length);
+		ND_PRINT("%s.%s > %s.%s: %u", "?", srcid, "?", dstid, length);
 		break;
 	}
 
-	printf(" %s", tok2str(proc2str, " proc #%u",
-	    EXTRACT_32BITS(&rp->rm_call.cb_proc)));
-	x = EXTRACT_32BITS(&rp->rm_call.cb_rpcvers);
-	if (x != 2)
-		printf(" [rpcver %u]", x);
+	ND_PRINT(" %s", tok2str(proc2str, " proc #%u",
+	    GET_BE_U_4(rp->rm_call.cb_proc)));
+	x = GET_BE_U_4(rp->rm_call.cb_rpcvers);
+	if (x != SUNRPC_MSG_VERSION)
+		ND_PRINT(" [rpcver %u]", x);
 
-	switch (EXTRACT_32BITS(&rp->rm_call.cb_proc)) {
+	switch (GET_BE_U_4(rp->rm_call.cb_proc)) {
 
 	case SUNRPC_PMAPPROC_SET:
 	case SUNRPC_PMAPPROC_UNSET:
 	case SUNRPC_PMAPPROC_GETPORT:
 	case SUNRPC_PMAPPROC_CALLIT:
-		x = EXTRACT_32BITS(&rp->rm_call.cb_prog);
-		if (!nflag)
-			printf(" %s", progstr(x));
+		x = GET_BE_U_4(rp->rm_call.cb_prog);
+		if (!ndo->ndo_nflag)
+			ND_PRINT(" %s", progstr(x));
 		else
-			printf(" %u", x);
-		printf(".%u", EXTRACT_32BITS(&rp->rm_call.cb_vers));
+			ND_PRINT(" %u", x);
+		ND_PRINT(".%u", GET_BE_U_4(rp->rm_call.cb_vers));
 		break;
 	}
 }
 
 static char *
-progstr(prog)
-	u_int32_t prog;
+progstr(uint32_t prog)
 {
 #if defined(HAVE_GETRPCBYNUMBER) && defined(HAVE_RPC_RPC_H)
-	register struct rpcent *rp;
+	struct rpcent *rp;
 #endif
 	static char buf[32];
-	static u_int32_t lastprog = 0;
+	static uint32_t lastprog = 0;
 
 	if (lastprog != 0 && prog == lastprog)
 		return (buf);
 #if defined(HAVE_GETRPCBYNUMBER) && defined(HAVE_RPC_RPC_H)
 	rp = getrpcbynumber(prog);
-	if (rp == NULL)
+	if (rp != NULL)
+		strlcpy(buf, rp->r_name, sizeof(buf));
+	else
 #endif
 		(void) snprintf(buf, sizeof(buf), "#%u", prog);
-#if defined(HAVE_GETRPCBYNUMBER) && defined(HAVE_RPC_RPC_H)
-	else
-		strlcpy(buf, rp->r_name, sizeof(buf));
-#endif
+	lastprog = prog;
 	return (buf);
 }

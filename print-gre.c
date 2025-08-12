@@ -12,11 +12,6 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 3. All advertising materials mentioning features or use of this software
- *    must display the following acknowledgement:
- *	This product includes software developed by Jason L. Wright
- * 4. The name of the author may not be used to endorse or promote products
- *    derived from this software without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
@@ -31,159 +26,159 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+/* \summary: Generic Routing Encapsulation (GRE) printer */
+
 /*
- * tcpdump filter for GRE - Generic Routing Encapsulation
+ * netdissect printer for GRE - Generic Routing Encapsulation
  * RFC1701 (GRE), RFC1702 (GRE IPv4), and RFC2637 (Enhanced GRE)
  */
 
-#ifndef lint
-static const char rcsid[] _U_ =
-    "@(#) $Header: /tcpdump/master/tcpdump/print-gre.c,v 1.28 2005-04-06 21:32:39 mcr Exp $ (LBL)";
-#endif
+#include <config.h>
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
+#include "netdissect-stdinc.h"
 
-#include <tcpdump-stdinc.h>
-
-#include <stdio.h>
-#include <string.h>
-
-#include "interface.h"
-#include "addrtoname.h"
+#include "netdissect.h"
+#include "addrtostr.h"
 #include "extract.h"
-
-#include "ip.h"
 #include "ethertype.h"
+
 
 #define	GRE_CP		0x8000		/* checksum present */
 #define	GRE_RP		0x4000		/* routing present */
 #define	GRE_KP		0x2000		/* key present */
 #define	GRE_SP		0x1000		/* sequence# present */
 #define	GRE_sP		0x0800		/* source routing */
-#define	GRE_RECRS	0x0700		/* recursion count */
 #define	GRE_AP		0x0080		/* acknowledgment# present */
 
-struct tok gre_flag_values[] = {
+static const struct tok gre_flag_values[] = {
     { GRE_CP, "checksum present"},
-    { GRE_RP, "routing present"}, 
-    { GRE_KP, "key present"}, 
-    { GRE_SP, "sequence# present"}, 
+    { GRE_RP, "routing present"},
+    { GRE_KP, "key present"},
+    { GRE_SP, "sequence# present"},
     { GRE_sP, "source routing present"},
-    { GRE_RECRS, "recursion count"},
     { GRE_AP, "ack present"},
     { 0, NULL }
 };
 
+#define	GRE_RECRS_MASK	0x0700		/* recursion count */
 #define	GRE_VERS_MASK	0x0007		/* protocol version */
 
 /* source route entry types */
 #define	GRESRE_IP	0x0800		/* IP */
 #define	GRESRE_ASN	0xfffe		/* ASN */
 
-void gre_print_0(const u_char *, u_int);
-void gre_print_1(const u_char *, u_int);
-void gre_sre_print(u_int16_t, u_int8_t, u_int8_t, const u_char *, u_int);
-void gre_sre_ip_print(u_int8_t, u_int8_t, const u_char *, u_int);
-void gre_sre_asn_print(u_int8_t, u_int8_t, const u_char *, u_int);
+static void gre_print_0(netdissect_options *, const u_char *, u_int);
+static void gre_print_1(netdissect_options *, const u_char *, u_int);
+static int gre_sre_print(netdissect_options *, uint16_t, uint8_t, uint8_t, const u_char *, u_int);
+static int gre_sre_ip_print(netdissect_options *, uint8_t, uint8_t, const u_char *, u_int);
+static int gre_sre_asn_print(netdissect_options *, uint8_t, uint8_t, const u_char *, u_int);
 
 void
-gre_print(const u_char *bp, u_int length)
+gre_print(netdissect_options *ndo, const u_char *bp, u_int length)
 {
 	u_int len = length, vers;
 
-	if (len < 2) {
-		printf("[|gre]");
-		return;
-	}
-	vers = EXTRACT_16BITS(bp) & GRE_VERS_MASK;
-        printf("GREv%u",vers);
+	ndo->ndo_protocol = "gre";
+	ND_TCHECK_2(bp);
+	if (len < 2)
+		goto trunc;
+	vers = GET_BE_U_2(bp) & GRE_VERS_MASK;
+	ND_PRINT("GREv%u",vers);
 
-        switch(vers) {
-        case 0:
-            gre_print_0(bp, len);
-            break;
-        case 1:
-            gre_print_1(bp, len);
-            break;
+	switch(vers) {
+	case 0:
+		gre_print_0(ndo, bp, len);
+		break;
+	case 1:
+		gre_print_1(ndo, bp, len);
+		break;
 	default:
-            printf(" ERROR: unknown-version");
-            break;
-        }
+		ND_PRINT(" ERROR: unknown-version");
+		break;
+	}
 	return;
 
+trunc:
+	nd_print_trunc(ndo);
 }
 
-void
-gre_print_0(const u_char *bp, u_int length)
+static void
+gre_print_0(netdissect_options *ndo, const u_char *bp, u_int length)
 {
 	u_int len = length;
-	u_int16_t flags, prot;
+	uint16_t flags, prot;
 
-	flags = EXTRACT_16BITS(bp);
-        if (vflag)
-            printf(", Flags [%s]",
-                   bittok2str(gre_flag_values,"none",flags));
+	/* 16 bits ND_TCHECKed in gre_print() */
+	flags = GET_BE_U_2(bp);
+	if (ndo->ndo_vflag)
+		ND_PRINT(", Flags [%s]",
+			 bittok2str(gre_flag_values,"none",flags));
 
 	len -= 2;
 	bp += 2;
 
+	ND_TCHECK_2(bp);
 	if (len < 2)
 		goto trunc;
-	prot = EXTRACT_16BITS(bp);
+	prot = GET_BE_U_2(bp);
 	len -= 2;
 	bp += 2;
 
 	if ((flags & GRE_CP) | (flags & GRE_RP)) {
+		ND_TCHECK_2(bp);
 		if (len < 2)
 			goto trunc;
-		if (vflag)
-			printf(", sum 0x%x", EXTRACT_16BITS(bp));
+		if (ndo->ndo_vflag)
+			ND_PRINT(", sum 0x%x", GET_BE_U_2(bp));
 		bp += 2;
 		len -= 2;
 
+		ND_TCHECK_2(bp);
 		if (len < 2)
 			goto trunc;
-		printf(", off 0x%x", EXTRACT_16BITS(bp));
+		ND_PRINT(", off 0x%x", GET_BE_U_2(bp));
 		bp += 2;
 		len -= 2;
 	}
 
 	if (flags & GRE_KP) {
+		ND_TCHECK_4(bp);
 		if (len < 4)
 			goto trunc;
-		printf(", key=0x%x", EXTRACT_32BITS(bp));
+		ND_PRINT(", key=0x%x", GET_BE_U_4(bp));
 		bp += 4;
 		len -= 4;
 	}
 
 	if (flags & GRE_SP) {
+		ND_TCHECK_4(bp);
 		if (len < 4)
 			goto trunc;
-		printf(", seq %u", EXTRACT_32BITS(bp));
+		ND_PRINT(", seq %u", GET_BE_U_4(bp));
 		bp += 4;
 		len -= 4;
 	}
 
 	if (flags & GRE_RP) {
 		for (;;) {
-			u_int16_t af;
-			u_int8_t sreoff;
-			u_int8_t srelen;
+			uint16_t af;
+			uint8_t sreoff;
+			uint8_t srelen;
 
+			ND_TCHECK_4(bp);
 			if (len < 4)
 				goto trunc;
-			af = EXTRACT_16BITS(bp);
-			sreoff = *(bp + 2);
-			srelen = *(bp + 3);
+			af = GET_BE_U_2(bp);
+			sreoff = GET_U_1(bp + 2);
+			srelen = GET_U_1(bp + 3);
 			bp += 4;
 			len -= 4;
 
 			if (af == 0 && srelen == 0)
 				break;
 
-			gre_sre_print(af, sreoff, srelen, bp, len);
+			if (!gre_sre_print(ndo, af, sreoff, srelen, bp, len))
+				goto trunc;
 
 			if (len < srelen)
 				goto trunc;
@@ -192,212 +187,226 @@ gre_print_0(const u_char *bp, u_int length)
 		}
 	}
 
-        if (eflag)
-            printf(", proto %s (0x%04x)",
-                   tok2str(ethertype_values,"unknown",prot),
-                   prot);
+	if (ndo->ndo_eflag)
+		ND_PRINT(", proto %s (0x%04x)",
+			 tok2str(ethertype_values,"unknown",prot), prot);
 
-        printf(", length %u",length);
+	ND_PRINT(", length %u",length);
 
-        if (vflag < 1)
-            printf(": "); /* put in a colon as protocol demarc */
-        else
-            printf("\n\t"); /* if verbose go multiline */
+	if (ndo->ndo_vflag < 1)
+		ND_PRINT(": "); /* put in a colon as protocol demarc */
+	else
+		ND_PRINT("\n\t"); /* if verbose go multiline */
 
 	switch (prot) {
 	case ETHERTYPE_IP:
-	        ip_print(gndo, bp, len);
+		ip_print(ndo, bp, len);
 		break;
-#ifdef INET6
 	case ETHERTYPE_IPV6:
-		ip6_print(gndo, bp, len);
+		ip6_print(ndo, bp, len);
 		break;
-#endif
 	case ETHERTYPE_MPLS:
-		mpls_print(bp, len);
+		mpls_print(ndo, bp, len);
 		break;
 	case ETHERTYPE_IPX:
-		ipx_print(bp, len);
+		ipx_print(ndo, bp, len);
 		break;
 	case ETHERTYPE_ATALK:
-		atalk_print(bp, len);
+		atalk_print(ndo, bp, len);
 		break;
 	case ETHERTYPE_GRE_ISO:
-		isoclns_print(bp, len, len);
+		isoclns_print(ndo, bp, len);
 		break;
 	case ETHERTYPE_TEB:
-		ether_print(gndo, bp, len, len, NULL, NULL);
+		ether_print(ndo, bp, len, ND_BYTES_AVAILABLE_AFTER(bp), NULL, NULL);
 		break;
 	default:
-		printf("gre-proto-0x%x", prot);
+		ND_PRINT("gre-proto-0x%x", prot);
 	}
 	return;
 
 trunc:
-	printf("[|gre]");
+	nd_print_trunc(ndo);
 }
 
-void
-gre_print_1(const u_char *bp, u_int length)
+static void
+gre_print_1(netdissect_options *ndo, const u_char *bp, u_int length)
 {
 	u_int len = length;
-	u_int16_t flags, prot;
+	uint16_t flags, prot;
 
-	flags = EXTRACT_16BITS(bp);
+	/* 16 bits ND_TCHECKed in gre_print() */
+	flags = GET_BE_U_2(bp);
 	len -= 2;
 	bp += 2;
 
-	if (vflag)
-            printf(", Flags [%s]",
-                   bittok2str(gre_flag_values,"none",flags));
+	if (ndo->ndo_vflag)
+		ND_PRINT(", Flags [%s]",
+			 bittok2str(gre_flag_values,"none",flags));
 
+	ND_TCHECK_2(bp);
 	if (len < 2)
 		goto trunc;
-	prot = EXTRACT_16BITS(bp);
+	prot = GET_BE_U_2(bp);
 	len -= 2;
 	bp += 2;
 
 
 	if (flags & GRE_KP) {
-		u_int32_t k;
+		uint32_t k;
 
+		ND_TCHECK_4(bp);
 		if (len < 4)
 			goto trunc;
-		k = EXTRACT_32BITS(bp);
-		printf(", call %d", k & 0xffff);
+		k = GET_BE_U_4(bp);
+		ND_PRINT(", call %u", k & 0xffff);
 		len -= 4;
 		bp += 4;
 	}
 
 	if (flags & GRE_SP) {
+		ND_TCHECK_4(bp);
 		if (len < 4)
 			goto trunc;
-		printf(", seq %u", EXTRACT_32BITS(bp));
+		ND_PRINT(", seq %u", GET_BE_U_4(bp));
 		bp += 4;
 		len -= 4;
 	}
 
 	if (flags & GRE_AP) {
+		ND_TCHECK_4(bp);
 		if (len < 4)
 			goto trunc;
-		printf(", ack %u", EXTRACT_32BITS(bp));
+		ND_PRINT(", ack %u", GET_BE_U_4(bp));
 		bp += 4;
 		len -= 4;
 	}
 
 	if ((flags & GRE_SP) == 0)
-		printf(", no-payload");
+		ND_PRINT(", no-payload");
 
-        if (eflag)
-            printf(", proto %s (0x%04x)",
-                   tok2str(ethertype_values,"unknown",prot),
-                   prot);
+	if (ndo->ndo_eflag)
+		ND_PRINT(", proto %s (0x%04x)",
+			 tok2str(ethertype_values,"unknown",prot), prot);
 
-        printf(", length %u",length);
+	ND_PRINT(", length %u",length);
 
-        if ((flags & GRE_SP) == 0)
-            return;
+	if ((flags & GRE_SP) == 0)
+		return;
 
-        if (vflag < 1)
-            printf(": "); /* put in a colon as protocol demarc */
-        else
-            printf("\n\t"); /* if verbose go multiline */
+	if (ndo->ndo_vflag < 1)
+		ND_PRINT(": "); /* put in a colon as protocol demarc */
+	else
+		ND_PRINT("\n\t"); /* if verbose go multiline */
 
 	switch (prot) {
 	case ETHERTYPE_PPP:
-                ppp_print(bp, len);
+		ppp_print(ndo, bp, len);
 		break;
 	default:
-		printf("gre-proto-0x%x", prot);
+		ND_PRINT("gre-proto-0x%x", prot);
 		break;
 	}
 	return;
 
 trunc:
-	printf("[|gre]");
+	nd_print_trunc(ndo);
 }
 
-void
-gre_sre_print(u_int16_t af, u_int8_t sreoff, u_int8_t srelen,
-    const u_char *bp, u_int len)
+static int
+gre_sre_print(netdissect_options *ndo, uint16_t af, uint8_t sreoff,
+	      uint8_t srelen, const u_char *bp, u_int len)
 {
+	int ret;
+
 	switch (af) {
 	case GRESRE_IP:
-		printf(", (rtaf=ip");
-		gre_sre_ip_print(sreoff, srelen, bp, len);
-		printf(") ");
+		ND_PRINT(", (rtaf=ip");
+		ret = gre_sre_ip_print(ndo, sreoff, srelen, bp, len);
+		ND_PRINT(")");
 		break;
 	case GRESRE_ASN:
-		printf(", (rtaf=asn");
-		gre_sre_asn_print(sreoff, srelen, bp, len);
-		printf(") ");
+		ND_PRINT(", (rtaf=asn");
+		ret = gre_sre_asn_print(ndo, sreoff, srelen, bp, len);
+		ND_PRINT(")");
 		break;
 	default:
-		printf(", (rtaf=0x%x) ", af);
+		ND_PRINT(", (rtaf=0x%x)", af);
+		ret = 1;
 	}
+	return (ret);
 }
-void
-gre_sre_ip_print(u_int8_t sreoff, u_int8_t srelen, const u_char *bp, u_int len)
+
+static int
+gre_sre_ip_print(netdissect_options *ndo, uint8_t sreoff, uint8_t srelen,
+		 const u_char *bp, u_int len)
 {
-	struct in_addr a;
 	const u_char *up = bp;
+	char buf[INET_ADDRSTRLEN];
 
 	if (sreoff & 3) {
-		printf(", badoffset=%u", sreoff);
-		return;
+		ND_PRINT(", badoffset=%u", sreoff);
+		return (1);
 	}
 	if (srelen & 3) {
-		printf(", badlength=%u", srelen);
-		return;
+		ND_PRINT(", badlength=%u", srelen);
+		return (1);
 	}
 	if (sreoff >= srelen) {
-		printf(", badoff/len=%u/%u", sreoff, srelen);
-		return;
+		ND_PRINT(", badoff/len=%u/%u", sreoff, srelen);
+		return (1);
 	}
 
-	for (;;) {
-		if (len < 4 || srelen == 0)
-			return;
+	while (srelen != 0) {
+		ND_TCHECK_4(bp);
+		if (len < 4)
+			return (0);
 
-		memcpy(&a, bp, sizeof(a));
-		printf(" %s%s",
-		    ((bp - up) == sreoff) ? "*" : "",
-		    inet_ntoa(a));
+		addrtostr(bp, buf, sizeof(buf));
+		ND_PRINT(" %s%s",
+			 ((bp - up) == sreoff) ? "*" : "", buf);
 
 		bp += 4;
 		len -= 4;
 		srelen -= 4;
 	}
+	return (1);
+trunc:
+	return 0;
 }
 
-void
-gre_sre_asn_print(u_int8_t sreoff, u_int8_t srelen, const u_char *bp, u_int len)
+static int
+gre_sre_asn_print(netdissect_options *ndo, uint8_t sreoff, uint8_t srelen,
+		  const u_char *bp, u_int len)
 {
 	const u_char *up = bp;
 
 	if (sreoff & 1) {
-		printf(", badoffset=%u", sreoff);
-		return;
+		ND_PRINT(", badoffset=%u", sreoff);
+		return (1);
 	}
 	if (srelen & 1) {
-		printf(", badlength=%u", srelen);
-		return;
+		ND_PRINT(", badlength=%u", srelen);
+		return (1);
 	}
 	if (sreoff >= srelen) {
-		printf(", badoff/len=%u/%u", sreoff, srelen);
-		return;
+		ND_PRINT(", badoff/len=%u/%u", sreoff, srelen);
+		return (1);
 	}
 
-	for (;;) {
-		if (len < 2 || srelen == 0)
-			return;
+	while (srelen != 0) {
+		ND_TCHECK_2(bp);
+		if (len < 2)
+			return (0);
 
-		printf(" %s%x",
-		    ((bp - up) == sreoff) ? "*" : "",
-		    EXTRACT_16BITS(bp));
+		ND_PRINT(" %s%x",
+			 ((bp - up) == sreoff) ? "*" : "", GET_BE_U_2(bp));
 
 		bp += 2;
 		len -= 2;
 		srelen -= 2;
 	}
+	return (1);
+trunc:
+	return 0;
 }

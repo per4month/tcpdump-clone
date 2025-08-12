@@ -34,55 +34,44 @@
  *
  */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
+/* \summary: Common Address Redundancy Protocol (CARP) printer */
 
-#include <tcpdump-stdinc.h>
+#include <config.h>
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
+#include "netdissect-stdinc.h"
 
-#include <netinet/in.h>
-
-#include "interface.h"
+#include "netdissect.h" /* for checksum structure and functions */
 #include "extract.h"
-#include "addrtoname.h"
 
 void
-carp_print(register const u_char *bp, register u_int len, int ttl)
+carp_print(netdissect_options *ndo, const u_char *bp, u_int len, u_int ttl)
 {
-	int version, type;
+	u_int version, type;
 	const char *type_s;
 
-	TCHECK(bp[0]);
-	version = (bp[0] & 0xf0) >> 4;
-	type = bp[0] & 0x0f;
+	ndo->ndo_protocol = "carp";
+	nd_print_protocol_caps(ndo);
+	version = (GET_U_1(bp) & 0xf0) >> 4;
+	type = GET_U_1(bp) & 0x0f;
 	if (type == 1)
 		type_s = "advertise";
 	else
 		type_s = "unknown";
-	printf("CARPv%d-%s %d: ", version, type_s, len);
+	ND_PRINT("v%u-%s %u: ", version, type_s, len);
 	if (ttl != 255)
-		printf("[ttl=%d!] ", ttl);
+		ND_PRINT("[ttl=%u!] ", ttl);
 	if (version != 2 || type != 1)
 		return;
-	TCHECK(bp[2]);
-	TCHECK(bp[5]);
-	printf("vhid=%d advbase=%d advskew=%d authlen=%d ",
-	    bp[1], bp[5], bp[2], bp[3]);
-	if (vflag) {
+	ND_PRINT("vhid=%u advbase=%u advskew=%u authlen=%u ",
+	    GET_U_1(bp + 1), GET_U_1(bp + 5), GET_U_1(bp + 2),
+	    GET_U_1(bp + 3));
+	if (ndo->ndo_vflag) {
 		struct cksum_vec vec[1];
-		vec[0].ptr = (const u_int8_t *)bp;
+		vec[0].ptr = (const uint8_t *)bp;
 		vec[0].len = len;
-		if (TTEST2(bp[0], len) && in_cksum(vec, 1))
-			printf(" (bad carp cksum %x!)",
-				EXTRACT_16BITS(&bp[6]));
+		if (ND_TTEST_LEN(bp, len) && in_cksum(vec, 1))
+			ND_PRINT(" (bad carp cksum %x!)",
+				GET_BE_U_2(bp + 6));
 	}
-	printf("counter=%" PRIu64, EXTRACT_64BITS(&bp[8]));
-
-	return;
-trunc:
-	printf("[|carp]");
+	ND_PRINT("counter=%" PRIu64, GET_BE_U_8(bp + 8));
 }

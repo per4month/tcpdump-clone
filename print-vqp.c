@@ -12,32 +12,21 @@
  * LIMITATION, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
  * FOR A PARTICULAR PURPOSE.
  *
- * support for the Cisco prop. VQP Protocol 
- *
  * Original code by Carles Kishimoto <Carles.Kishimoto@bsc.es>
  */
 
-#ifndef lint
-static const char rcsid[] _U_ =
-    "@(#) $Header: /tcpdump/master/tcpdump/print-vqp.c,v 1.3 2006-08-19 06:51:13 guy Exp $";
-#endif
+/* \summary: Cisco VLAN Query Protocol (VQP) printer */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
+#include <config.h>
 
-#include <tcpdump-stdinc.h>
+#include "netdissect-stdinc.h"
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
-#include "interface.h"
+#define ND_LONGJMP_FROM_TCHECK
+#include "netdissect.h"
 #include "extract.h"
 #include "addrtoname.h"
 
-#define VQP_VERSION            		1
-#define VQP_EXTRACT_VERSION(x) ((x)&0xFF)
+#define VQP_VERSION 1
 
 /*
  * VQP common header
@@ -52,16 +41,16 @@ static const char rcsid[] _U_ =
  */
 
 struct vqp_common_header_t {
-    u_int8_t version;
-    u_int8_t msg_type;
-    u_int8_t error_code;
-    u_int8_t nitems;
-    u_int8_t sequence[4];
+    nd_uint8_t  version;
+    nd_uint8_t  msg_type;
+    nd_uint8_t  error_code;
+    nd_uint8_t  nitems;
+    nd_uint32_t sequence;
 };
 
 struct vqp_obj_tlv_t {
-    u_int8_t obj_type[4];
-    u_int8_t obj_length[2];
+    nd_uint32_t obj_type;
+    nd_uint16_t obj_length;
 };
 
 #define VQP_OBJ_REQ_JOIN_PORT  0x01
@@ -106,66 +95,74 @@ static const struct tok vqp_obj_values[] = {
 };
 
 void
-vqp_print(register const u_char *pptr, register u_int len) 
+vqp_print(netdissect_options *ndo, const u_char *pptr, u_int len)
 {
     const struct vqp_common_header_t *vqp_common_header;
     const struct vqp_obj_tlv_t *vqp_obj_tlv;
 
     const u_char *tptr;
-    u_int16_t vqp_obj_len;
-    u_int32_t vqp_obj_type;
-    int tlen;
-    u_int8_t nitems;
+    uint8_t version;
+    uint16_t vqp_obj_len;
+    uint32_t vqp_obj_type;
+    u_int tlen;
+    uint8_t nitems;
 
+    ndo->ndo_protocol = "vqp";
     tptr=pptr;
     tlen = len;
     vqp_common_header = (const struct vqp_common_header_t *)pptr;
-    TCHECK(*vqp_common_header);
+    ND_TCHECK_SIZE(vqp_common_header);
+    if (sizeof(struct vqp_common_header_t) > tlen)
+        goto invalid;
+    version = GET_U_1(vqp_common_header->version);
 
     /*
      * Sanity checking of the header.
      */
-    if (VQP_EXTRACT_VERSION(vqp_common_header->version) != VQP_VERSION) {
-	printf("VQP version %u packet not supported",
-               VQP_EXTRACT_VERSION(vqp_common_header->version));
+    if (version != VQP_VERSION) {
+	ND_PRINT("VQP version %u packet not supported",
+               version);
 	return;
     }
 
     /* in non-verbose mode just lets print the basic Message Type */
-    if (vflag < 1) {
-        printf("VQPv%u %s Message, error-code %s (%u), length %u",
-               VQP_EXTRACT_VERSION(vqp_common_header->version),
-               tok2str(vqp_msg_type_values, "unknown (%u)",vqp_common_header->msg_type),
-               tok2str(vqp_error_code_values, "unknown (%u)",vqp_common_header->error_code),
-	       vqp_common_header->error_code,
+    if (ndo->ndo_vflag < 1) {
+        ND_PRINT("VQPv%u %s Message, error-code %s (%u), length %u",
+               version,
+               tok2str(vqp_msg_type_values, "unknown (%u)",GET_U_1(vqp_common_header->msg_type)),
+               tok2str(vqp_error_code_values, "unknown", GET_U_1(vqp_common_header->error_code)),
+               GET_U_1(vqp_common_header->error_code),
                len);
         return;
     }
-    
+
     /* ok they seem to want to know everything - lets fully decode it */
-    nitems = vqp_common_header->nitems;
-    printf("\n\tVQPv%u, %s Message, error-code %s (%u), seq 0x%08x, items %u, length %u",
-           VQP_EXTRACT_VERSION(vqp_common_header->version),
-	   tok2str(vqp_msg_type_values, "unknown (%u)",vqp_common_header->msg_type),
-	   tok2str(vqp_error_code_values, "unknown (%u)",vqp_common_header->error_code),
-	   vqp_common_header->error_code,
-           EXTRACT_32BITS(&vqp_common_header->sequence),
-           nitems,
+    nitems = GET_U_1(vqp_common_header->nitems);
+    ND_PRINT("\n\tVQPv%u, %s Message, error-code %s (%u), seq 0x%08x, items %u, length %u",
+           version,
+	   tok2str(vqp_msg_type_values, "unknown (%u)",GET_U_1(vqp_common_header->msg_type)),
+	   tok2str(vqp_error_code_values, "unknown", GET_U_1(vqp_common_header->error_code)),
+	   GET_U_1(vqp_common_header->error_code),
+	   GET_BE_U_4(vqp_common_header->sequence),
+	   nitems,
            len);
 
     /* skip VQP Common header */
-    tptr+=sizeof(const struct vqp_common_header_t);
-    tlen-=sizeof(const struct vqp_common_header_t);
+    tptr+=sizeof(struct vqp_common_header_t);
+    tlen-=sizeof(struct vqp_common_header_t);
 
-    while (nitems > 0 && tlen > 0) {
+    while (nitems != 0 && tlen != 0) {
 
         vqp_obj_tlv = (const struct vqp_obj_tlv_t *)tptr;
-        vqp_obj_type = EXTRACT_32BITS(vqp_obj_tlv->obj_type);
-        vqp_obj_len = EXTRACT_16BITS(vqp_obj_tlv->obj_length);
+        ND_TCHECK_SIZE(vqp_obj_tlv);
+        if (sizeof(struct vqp_obj_tlv_t) > tlen)
+            goto invalid;
+        vqp_obj_type = GET_BE_U_4(vqp_obj_tlv->obj_type);
+        vqp_obj_len = GET_BE_U_2(vqp_obj_tlv->obj_length);
         tptr+=sizeof(struct vqp_obj_tlv_t);
         tlen-=sizeof(struct vqp_obj_tlv_t);
 
-        printf("\n\t  %s Object (0x%08x), length %u, value: ",
+        ND_PRINT("\n\t  %s Object (0x%08x), length %u, value: ",
                tok2str(vqp_obj_values, "Unknown", vqp_obj_type),
                vqp_obj_type, vqp_obj_len);
 
@@ -175,28 +172,34 @@ vqp_print(register const u_char *pptr, register u_int len)
         }
 
         /* did we capture enough for fully decoding the object ? */
-        if (!TTEST2(*tptr, vqp_obj_len)) 
-            goto trunc;
+        ND_TCHECK_LEN(tptr, vqp_obj_len);
+        if (vqp_obj_len > tlen)
+            goto invalid;
 
         switch(vqp_obj_type) {
 	case VQP_OBJ_IP_ADDRESS:
-            printf("%s (0x%08x)", ipaddr_string(tptr), EXTRACT_32BITS(tptr));
+            if (vqp_obj_len != 4)
+                goto invalid;
+            ND_PRINT("%s (0x%08x)", GET_IPADDR_STRING(tptr),
+                     GET_BE_U_4(tptr));
             break;
             /* those objects have similar semantics - fall through */
         case VQP_OBJ_PORT_NAME:
 	case VQP_OBJ_VLAN_NAME:
 	case VQP_OBJ_VTP_DOMAIN:
 	case VQP_OBJ_ETHERNET_PKT:
-            safeputs((const char *)tptr, vqp_obj_len);
+            nd_printjnp(ndo, tptr, vqp_obj_len);
             break;
             /* those objects have similar semantics - fall through */
 	case VQP_OBJ_MAC_ADDRESS:
 	case VQP_OBJ_MAC_NULL:
-	      printf("%s", etheraddr_string(tptr));
+            if (vqp_obj_len != MAC_ADDR_LEN)
+                goto invalid;
+	      ND_PRINT("%s", GET_ETHERADDR_STRING(tptr));
               break;
         default:
-            if (vflag <= 1)
-                print_unknown_data(tptr, "\n\t    ", vqp_obj_len);
+            if (ndo->ndo_vflag <= 1)
+                print_unknown_data(ndo,tptr, "\n\t    ", vqp_obj_len);
             break;
         }
 	tptr += vqp_obj_len;
@@ -204,6 +207,6 @@ vqp_print(register const u_char *pptr, register u_int len)
 	nitems--;
     }
     return;
-trunc:
-    printf("\n\t[|VQP]");
+invalid:
+    nd_print_invalid(ndo);
 }

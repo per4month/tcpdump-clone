@@ -13,20 +13,19 @@
  * Original code by Francesco Fondelli (francesco dot fondelli, gmail dot com)
  */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
+/* \summary: Overlay Transport Virtualization (OTV) printer */
 
-#include <tcpdump-stdinc.h>
+/* specification: draft-hasmit-otv-04 */
 
-#include <stdio.h>
-#include <stdlib.h>
+#include <config.h>
 
-#include "interface.h"
+#include "netdissect-stdinc.h"
+
+#define ND_LONGJMP_FROM_TCHECK
+#include "netdissect.h"
 #include "extract.h"
-#include "addrtoname.h"
 
-#include "udp.h"
+#define OTV_HDR_LEN 8
 
 /*
  * OTV header, draft-hasmit-otv-04
@@ -41,39 +40,35 @@
  */
 
 void
-otv_print(const u_char *bp, u_int len, u_int port)
+otv_print(netdissect_options *ndo, const u_char *bp, u_int len)
 {
-    u_int8_t flags;
-    u_int32_t overlay_id;
-    u_int32_t instance_id;
-    
-    if (len < 8) {
-        printf("[|OTV]");
-        return;
+    uint8_t flags;
+
+    ndo->ndo_protocol = "otv";
+    ND_PRINT("OTV, ");
+    if (len < OTV_HDR_LEN) {
+        ND_PRINT("[length %u < %u]", len, OTV_HDR_LEN);
+        goto invalid;
     }
 
-    flags = *bp;
+    flags = GET_U_1(bp);
+    ND_PRINT("flags [%s] (0x%02x), ", flags & 0x08 ? "I" : ".", flags);
     bp += 1;
 
-    overlay_id = EXTRACT_24BITS(bp);
+    ND_PRINT("overlay %u, ", GET_BE_U_3(bp));
     bp += 3;
 
-    instance_id = EXTRACT_24BITS(bp);
-    bp += 4;
+    ND_PRINT("instance %u\n", GET_BE_U_3(bp));
+    bp += 3;
 
-    printf("OTV, ");
+    /* Reserved */
+    ND_TCHECK_1(bp);
+    bp += 1;
 
-    fputs("flags [", stdout);
-    if (flags & 0x08)
-        fputs("I", stdout);
-    else
-        fputs(".", stdout);
-    fputs("] ", stdout);
-
-    printf("(0x%02x), ", flags);
-    printf("overlay %u, ", overlay_id);
-    printf("instance %u\n", instance_id);
-
-    ether_print(gndo, bp, len - 8, len - 8, NULL, NULL);
+    ether_print(ndo, bp, len - OTV_HDR_LEN, ND_BYTES_AVAILABLE_AFTER(bp), NULL, NULL);
     return;
+
+invalid:
+    nd_print_invalid(ndo);
+    ND_TCHECK_LEN(bp, len);
 }

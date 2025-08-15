@@ -205,6 +205,9 @@ static char *remote_interfaces_source;	/* list available devices from this sourc
  * dflag but, instead, *if* built with optimizer debugging code,
  * *export* a routine to set that flag.
  */
+
+/* Hello everyone */
+
 extern int dflag;
 int dflag;				/* print filter code */
 static int Gflag;			/* rotate dump files after this many seconds */

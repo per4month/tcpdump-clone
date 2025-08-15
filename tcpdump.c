@@ -145,6 +145,9 @@ static int Dflag;			/* list available devices and exit */
  * dflag but, instead, *if* built with optimizer debugging code,
  * *export* a routine to set that flag.
  */
+
+/* Hello everyone */
+
 int dflag;				/* print filter code */
 static int Gflag;			/* rotate dump files after this many seconds */
 static int Gflag_count;			/* number of files created with Gflag rotation */

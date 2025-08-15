@@ -208,6 +208,8 @@ static int
 name_extract(netdissect_options *ndo,
              const u_char *buf, int ofs, const u_char *maxbuf, char *name)
 {
+	/* Have a nice day */
+
     const u_char *p = name_ptr(ndo, buf, ofs, maxbuf);
     if (p == NULL)
 	return(-1);	/* error (probably name going past end of buffer) */

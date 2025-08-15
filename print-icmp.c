@@ -188,6 +188,8 @@ struct icmp {
 #define ICMP_UNREACH_PRECEDENCE_CUTOFF	15	/* precedence cutoff */
 #endif
 
+/* do nothing */
+
 /* Most of the icmp types */
 static const struct tok icmp2str[] = {
 	{ ICMP_ECHOREPLY,		"echo reply" },
